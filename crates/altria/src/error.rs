@@ -703,6 +703,8 @@ pub enum ErrorKind {
     External,
     /// Internal system errors
     Internal,
+    /// Unknown or unspecified errors
+    Unknown,
 }
 
 impl fmt::Display for ErrorKind {
@@ -717,6 +719,7 @@ impl fmt::Display for ErrorKind {
             ErrorKind::Business => write!(f, "BUSINESS"),
             ErrorKind::External => write!(f, "EXTERNAL"),
             ErrorKind::Internal => write!(f, "INTERNAL"),
+            ErrorKind::Unknown => write!(f, "UNKNOWN"),
         }
     }
 }

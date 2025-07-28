@@ -1,6 +1,6 @@
 # Altria
 
-A comprehensive Rust library for web development with robust error handling.
+A comprehensive Rust library for web server development.
 
 ## Error Handling System
 
