@@ -1,3 +1,10 @@
 [workspace]
 resolver = "3"
 members = ["crates/altria"]
+
+[workspace.package]
+edition = "2024"
+authors = ["lytws <lytws.rhb@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/lytws/altria"
+homepage = "https://github.com/lytws/altria"

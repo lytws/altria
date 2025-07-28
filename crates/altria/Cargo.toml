@@ -1,7 +1,16 @@
 [package]
 name = "altria"
 version = "0.1.0"
-edition = "2024"
+description = "A comprehensive Rust library for web development with robust error handling"
+documentation = "https://docs.rs/altria"
+readme = "README.md"
+categories = ["web-programming", "development-tools"]
+keywords = ["error-handling", "web", "http", "debugging", "tracing"]
+authors = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+edition = { workspace = true }
 
 [[example]]
 name = "error_usage"
