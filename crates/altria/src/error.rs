@@ -17,6 +17,7 @@
 //! - [`ErrorKind::Business`] - Custom business logic errors
 //! - [`ErrorKind::External`] - External service errors
 //! - [`ErrorKind::Internal`] - Internal system errors
+//! - [`ErrorKind::Unknown`] - Unknown or unclassified errors
 //!
 //! ### 2. Complete Error Information
 //! Each error contains:
