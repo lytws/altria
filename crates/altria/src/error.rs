@@ -232,8 +232,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use backtrace::Backtrace;
 use serde::{Deserialize, Serialize};
+use std::backtrace::Backtrace;
 
 /// Comprehensive error type for web development
 ///
@@ -273,45 +273,11 @@ pub struct Error {
     /// Custom error code (mainly for business errors)
     code: Option<String>,
     /// Stack trace captured at error creation
-    backtrace: String,
+    backtrace: Backtrace,
     /// Additional metadata
     metadata: HashMap<String, String>,
     /// Source error chain (using std::error::Error trait)
     source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
-}
-
-/// Error category enum for quick error type identification
-///
-/// This enum provides semantic categorization of errors commonly encountered
-/// in web development. Each variant represents a different category of error
-/// that might require different handling strategies.
-///
-/// # Examples
-///
-/// ```rust
-/// # use altria::error::{Error, ErrorKind};
-/// let db_error = Error::new(ErrorKind::Database, "Connection timeout");
-/// let auth_error = Error::new(ErrorKind::Auth, "Invalid credentials");
-///
-/// match db_error.kind() {
-///     ErrorKind::Database => println!("Handle database error"),
-///     ErrorKind::Auth => println!("Handle auth error"),
-///     _ => println!("Handle other errors"),
-/// }
-/// ```
-impl Clone for Error {
-    fn clone(&self) -> Self {
-        Self {
-            kind: self.kind.clone(),
-            message: self.message.clone(),
-            code: self.code.clone(),
-            backtrace: self.backtrace.clone(),
-            metadata: self.metadata.clone(),
-            // Note: We lose the source chain when cloning because trait objects can't be cloned
-            // This is a limitation when using std::error::Error trait objects
-            source: None,
-        }
-    }
 }
 
 impl Error {
@@ -334,7 +300,7 @@ impl Error {
             kind,
             message: message.into(),
             code: None,
-            backtrace: format!("{:?}", Backtrace::new()),
+            backtrace: Backtrace::capture(),
             metadata: HashMap::new(),
             source: None,
         }
@@ -359,7 +325,7 @@ impl Error {
             kind: ErrorKind::Business,
             message: message.into(),
             code: Some(code.into()),
-            backtrace: format!("{:?}", Backtrace::new()),
+            backtrace: Backtrace::capture(),
             metadata: HashMap::new(),
             source: None,
         }
@@ -421,7 +387,7 @@ impl Error {
     }
 
     /// Get the backtrace
-    pub fn backtrace(&self) -> &str {
+    pub fn backtrace(&self) -> &Backtrace {
         &self.backtrace
     }
 
