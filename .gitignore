@@ -9,6 +9,10 @@ Cargo.lock
 # VS Code
 .vscode/
 
+# copilot instructions
+.github/copilot-instructions.md
+.github/instructions/*
+
 # Byproducts
 *.log
 *.tmp

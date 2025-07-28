@@ -1,14 +1,9 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! # Altria Library
+//!
+//! A comprehensive Rust library for web development with robust error handling,
+//! utilities, and common patterns.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod error;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+// Re-export commonly used types
+pub use error::{Error, ErrorKind, Result};
