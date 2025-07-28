@@ -1,10 +1,10 @@
 [package]
 name = "altria"
 version = "0.1.0"
-description = "A comprehensive Rust library for web development with robust error handling"
+description = "A comprehensive Rust library for web server development"
 documentation = "https://docs.rs/altria"
 readme = "README.md"
-categories = ["web-programming", "development-tools"]
+categories = ["web-programming", "http-server"]
 keywords = ["web", "http"]
 authors = { workspace = true }
 license = { workspace = true }
