@@ -5,7 +5,7 @@ description = "A comprehensive Rust library for web development with robust erro
 documentation = "https://docs.rs/altria"
 readme = "README.md"
 categories = ["web-programming", "development-tools"]
-keywords = ["error-handling", "web", "http", "debugging", "tracing"]
+keywords = ["web", "http"]
 authors = { workspace = true }
 license = { workspace = true }
 homepage = { workspace = true }
