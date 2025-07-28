@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use altria::{Error, Result};
+use altria::error::{Error, Result};
 
 fn main() {
     println!("=== Altria Error Type Usage Examples ===\n");

@@ -3,7 +3,8 @@
 //! A comprehensive Rust library for web development with robust error handling,
 //! utilities, and common patterns.
 
-pub mod error;
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![doc = include_str!("../README.md")]
+#![allow(async_fn_in_trait)]
 
-// Re-export commonly used types
-pub use error::{Error, ErrorKind, Result};
+pub mod error;

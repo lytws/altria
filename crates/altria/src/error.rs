@@ -46,7 +46,7 @@
 //! ### Creating Errors
 //!
 //! ```rust
-//! use altria::{Error, ErrorKind, Result};
+//! use altria::error::{Error, ErrorKind, Result};
 //!
 //! // Basic error
 //! let error = Error::new(ErrorKind::Database, "Connection failed");
@@ -65,7 +65,7 @@
 //! ### Adding Metadata
 //!
 //! ```rust
-//! # use altria::Error;
+//! # use altria::error::Error;
 //! let error = Error::validation("Input validation failed")
 //!     .with_metadata("field", "email")
 //!     .with_metadata("value", "invalid-email")
@@ -75,7 +75,7 @@
 //! ### Error Chaining
 //!
 //! ```rust
-//! # use altria::Error;
+//! # use altria::error::Error;
 //! let source_error = Error::io("File not found");
 //! let main_error = Error::config("Configuration loading failed")
 //!     .with_source(source_error);
@@ -84,7 +84,7 @@
 //! ### Error Checking
 //!
 //! ```rust
-//! # use altria::Error;
+//! # use altria::error::Error;
 //! let error = Error::database("Connection failed");
 //!
 //! // Check error type
@@ -103,7 +103,7 @@
 //! ### Using Result Type
 //!
 //! ```rust
-//! # use altria::{Error, Result};
+//! # use altria::error::{Error, Result};
 //! # fn some_condition_fails() -> bool { true }
 //! fn risky_operation() -> Result<String> {
 //!     // Simulate potentially failing operation
@@ -131,7 +131,7 @@
 //! The system automatically supports conversion of common error types:
 //!
 //! ```rust
-//! # use altria::Result;
+//! # use altria::error::Result;
 //! use std::fs::File;
 //!
 //! fn read_file() -> Result<String> {
@@ -146,7 +146,7 @@
 //! ### Error Chain Traversal
 //!
 //! ```rust
-//! # use altria::Error;
+//! # use altria::error::Error;
 //! # let error = Error::database("test");
 //! let error_chain = error.error_chain();
 //! for (i, err) in error_chain.iter().enumerate() {
@@ -157,7 +157,7 @@
 //! ### Complex Error Construction
 //!
 //! ```rust
-//! # use altria::Error;
+//! # use altria::error::Error;
 //! use std::collections::HashMap;
 //!
 //! let mut metadata = HashMap::new();
@@ -174,7 +174,7 @@
 //! ### Standard Library Error Chain Integration
 //!
 //! ```rust
-//! # use altria::Error;
+//! # use altria::error::Error;
 //! use std::io;
 //!
 //! // Interoperability with standard library errors
@@ -249,7 +249,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Basic error creation:
 /// ```rust
-/// # use altria::{Error, ErrorKind};
+/// # use altria::error::{Error, ErrorKind};
 /// let error = Error::new(ErrorKind::Database, "Connection failed");
 /// assert!(error.is_database());
 /// assert_eq!(error.message(), "Connection failed");
@@ -257,7 +257,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Error with metadata and chaining:
 /// ```rust
-/// # use altria::Error;
+/// # use altria::error::Error;
 /// let source = Error::io("File not found");
 /// let error = Error::config("Failed to load config")
 ///     .with_source(source)
@@ -289,7 +289,7 @@ pub struct Error {
 /// # Examples
 ///
 /// ```rust
-/// # use altria::{Error, ErrorKind};
+/// # use altria::error::{Error, ErrorKind};
 /// let db_error = Error::new(ErrorKind::Database, "Connection timeout");
 /// let auth_error = Error::new(ErrorKind::Auth, "Invalid credentials");
 ///
@@ -324,7 +324,7 @@ impl Error {
     /// # Examples
     ///
     /// ```rust
-    /// # use altria::{Error, ErrorKind};
+    /// # use altria::error::{Error, ErrorKind};
     /// let error = Error::new(ErrorKind::Database, "Connection failed");
     /// assert_eq!(error.message(), "Connection failed");
     /// assert!(error.is_database());
@@ -349,7 +349,7 @@ impl Error {
     /// # Examples
     ///
     /// ```rust
-    /// # use altria::Error;
+    /// # use altria::error::Error;
     /// let error = Error::business("Invalid operation", "USER_001");
     /// assert!(error.is_business());
     /// assert_eq!(error.code(), Some("USER_001"));
@@ -450,7 +450,7 @@ impl Error {
     /// # Examples
     ///
     /// ```rust
-    /// # use altria::Error;
+    /// # use altria::error::Error;
     /// let error = Error::validation("Invalid input")
     ///     .with_metadata("field", "email")
     ///     .with_metadata("value", "invalid@")
@@ -478,7 +478,7 @@ impl Error {
     /// # Examples
     ///
     /// ```rust
-    /// # use altria::Error;
+    /// # use altria::error::Error;
     /// use std::io;
     /// use std::error::Error as StdError; // Import trait for source() method
     ///
@@ -546,7 +546,7 @@ impl Error {
     /// # Examples
     ///
     /// ```rust
-    /// # use altria::Error;
+    /// # use altria::error::Error;
     /// let source = Error::io("File not found");
     /// let main_error = Error::config("Config load failed")
     ///     .with_source(source);
@@ -652,7 +652,7 @@ impl From<serde_json::Error> for Error {
 /// # Examples
 ///
 /// ```rust
-/// # use altria::{Error, Result};
+/// # use altria::error::{Error, Result};
 /// fn might_fail() -> Result<String> {
 ///     if some_condition() {
 ///         Ok("success".to_string())
@@ -673,7 +673,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// # Examples
 ///
 /// ```rust
-/// # use altria::{Error, ErrorKind};
+/// # use altria::error::{Error, ErrorKind};
 /// let db_error = Error::new(ErrorKind::Database, "Connection timeout");
 /// let auth_error = Error::new(ErrorKind::Auth, "Invalid credentials");
 ///
