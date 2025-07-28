@@ -1,0 +1,57 @@
+# Rust
+/target/
+**/target/
+**/*.rs.bk
+**/*.swp
+**/*.swo
+Cargo.lock
+
+# VS Code
+.vscode/
+
+# Byproducts
+*.log
+*.tmp
+*.bak
+*.old
+*.orig
+
+# MacOS
+.DS_Store
+
+# Rust/Cargo
+**/Cargo.lock
+**/Cargo.toml.orig
+**/Cargo.toml.bk
+
+# Rust Analyzer
+**/.rustc_info.json
+**/.rust-analyzer.json
+**/.rust-analyzer/
+
+# Other
+.idea/
+*.iml
+*.sublime-workspace
+*.sublime-project
+
+# Test output
+**/test-output/
+
+# Coverage
+**/coverage/
+
+# Clippy lints
+clippy.toml
+.clippy.toml
+
+# Backup files
+*~
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+
+# Node/npm (if using WASM or JS tooling)
+node_modules/
