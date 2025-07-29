@@ -252,10 +252,14 @@ use std::backtrace::Backtrace;
 /// This macro is the single source of truth for all error types in the system.
 /// It automatically generates:
 /// - ErrorKind enum variants
-/// - Constructor methods (database, io, network, etc.)
+/// - Constructor methods with different signatures (message-only or code+message)
 /// - Kind checking methods (is_database, is_io, is_network, etc.)
 /// - Display implementation for ErrorKind
 /// - Documentation for all generated items
+///
+/// Constructor Types:
+/// - `simple`: fn method_name(message: impl Into<String>) -> Self
+/// - `with_code`: fn method_name(code: i32, message: impl Into<String>) -> Self
 ///
 /// To add a new error kind, simply add it to this macro definition.
 macro_rules! define_error_kinds {
@@ -264,6 +268,7 @@ macro_rules! define_error_kinds {
         $variant:ident => {
             method: $method_name:ident,
             check_method: $check_method:ident,
+            constructor: $constructor_type:ident,
             display: $display_name:literal,
             doc: $method_doc:literal,
             check_doc: $check_doc:literal,
@@ -307,12 +312,9 @@ macro_rules! define_error_kinds {
         }
 
         impl Error {
-            // Generate constructor methods
+            // Generate constructor methods with different signatures
             $(
-                #[doc = $method_doc]
-                pub fn $method_name(message: impl Into<String>) -> Self {
-                    Self::new(ErrorKind::$variant, message)
-                }
+                define_error_kinds!(@constructor $constructor_type, $method_name, $variant, $method_doc);
             )*
 
             // Generate kind checking methods with explicit names
@@ -324,6 +326,29 @@ macro_rules! define_error_kinds {
             )*
         }
     };
+
+    // Internal macro for simple constructors (message only)
+    (@constructor simple, $method_name:ident, $variant:ident, $method_doc:literal) => {
+        #[doc = $method_doc]
+        pub fn $method_name(message: impl Into<String>) -> Self {
+            Self::new(ErrorKind::$variant, message)
+        }
+    };
+
+    // Internal macro for constructors with code
+    (@constructor with_code, $method_name:ident, $variant:ident, $method_doc:literal) => {
+        #[doc = $method_doc]
+        pub fn $method_name(code: i32, message: impl Into<String>) -> Self {
+            Self {
+                kind: ErrorKind::$variant,
+                message: message.into(),
+                code: Some(code),
+                backtrace: Backtrace::capture(),
+                metadata: HashMap::new(),
+                source: None,
+            }
+        }
+    };
 }
 
 // Define all error kinds in one place - this is the single source of truth!
@@ -332,6 +357,7 @@ define_error_kinds! {
     Database => {
         method: database,
         check_method: is_database,
+        constructor: simple,
         display: "DATABASE",
         doc: "Create a new database error",
         check_doc: "Check if error is a database error",
@@ -340,6 +366,7 @@ define_error_kinds! {
     Io => {
         method: io,
         check_method: is_io,
+        constructor: simple,
         display: "IO",
         doc: "Create a new IO error",
         check_doc: "Check if error is an IO error",
@@ -348,6 +375,7 @@ define_error_kinds! {
     Network => {
         method: network,
         check_method: is_network,
+        constructor: simple,
         display: "NETWORK",
         doc: "Create a new network error",
         check_doc: "Check if error is a network error",
@@ -356,6 +384,7 @@ define_error_kinds! {
     Auth => {
         method: auth,
         check_method: is_auth,
+        constructor: simple,
         display: "AUTH",
         doc: "Create a new auth error",
         check_doc: "Check if error is an auth error",
@@ -364,6 +393,7 @@ define_error_kinds! {
     Validation => {
         method: validation,
         check_method: is_validation,
+        constructor: simple,
         display: "VALIDATION",
         doc: "Create a new validation error",
         check_doc: "Check if error is a validation error",
@@ -372,6 +402,7 @@ define_error_kinds! {
     Config => {
         method: config,
         check_method: is_config,
+        constructor: simple,
         display: "CONFIG",
         doc: "Create a new config error",
         check_doc: "Check if error is a config error",
@@ -380,22 +411,25 @@ define_error_kinds! {
     Cache => {
         method: cache,
         check_method: is_cache,
+        constructor: simple,
         display: "CACHE",
         doc: "Create a new cache error",
         check_doc: "Check if error is a cache error",
     },
     /// Custom business logic errors
     Business => {
-        method: business_simple,
-        check_method: is_business_simple,
+        method: business,
+        check_method: is_business,
+        constructor: with_code,
         display: "BUSINESS",
-        doc: "Create a new simple business error without code (use Error::business(code, message) for business errors with codes)",
+        doc: "Create a new business error with error code and message",
         check_doc: "Check if error is a business error",
     },
     /// External service errors
     External => {
         method: external,
         check_method: is_external,
+        constructor: simple,
         display: "EXTERNAL",
         doc: "Create a new external service error",
         check_doc: "Check if error is an external error",
@@ -404,6 +438,7 @@ define_error_kinds! {
     Internal => {
         method: internal,
         check_method: is_internal,
+        constructor: simple,
         display: "INTERNAL",
         doc: "Create a new internal error",
         check_doc: "Check if error is an internal error",
@@ -412,6 +447,7 @@ define_error_kinds! {
     Unknown => {
         method: unknown,
         check_method: is_unknown,
+        constructor: simple,
         display: "UNKNOWN",
         doc: "Create a new unknown error",
         check_doc: "Check if error is an unknown error",
@@ -489,32 +525,7 @@ impl Error {
         }
     }
 
-    /// Create a new business error with custom error code
-    ///
-    /// Business errors are typically used for application-specific logic errors
-    /// that need to be communicated to end users or other services. The error code
-    /// can be used for programmatic error handling.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use altria::error::Error;
-    /// let error = Error::business(1001, "Invalid operation");
-    /// assert!(error.is_business());
-    /// assert_eq!(error.code(), Some(1001));
-    /// ```
-    pub fn business(code: i32, message: impl Into<String>) -> Self {
-        Self {
-            kind: ErrorKind::Business,
-            message: message.into(),
-            code: Some(code),
-            backtrace: Backtrace::capture(),
-            metadata: HashMap::new(),
-            source: None,
-        }
-    }
-
-    // Convenience constructors generated by macro above
+    // Convenience constructors and kind checking methods generated by macro above
 
     /// Get the error kind
     pub fn kind(&self) -> &ErrorKind {
@@ -614,11 +625,6 @@ impl Error {
     }
 
     // Error kind checking methods generated by macro above
-
-    /// Convenience method for business error checking (alias for is_business_simple)
-    pub fn is_business(&self) -> bool {
-        self.is_business_simple()
-    }
 
     /// Get error chain using std::error::Error's source mechanism
     ///
