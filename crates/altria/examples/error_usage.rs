@@ -14,7 +14,7 @@ fn main() {
 
     // Example 2: Business error with custom code
     println!("2. Business error with custom code:");
-    let business_error = Error::business("Invalid user operation", "USER_001");
+    let business_error = Error::business(1001, "Invalid user operation");
     println!("{}\n", business_error);
 
     // Example 3: Error with metadata
@@ -39,7 +39,7 @@ fn main() {
     metadata.insert("timestamp".to_string(), "2025-07-28T15:30:00Z".to_string());
 
     let permission_error = Error::auth("Insufficient permissions");
-    let complex_error = Error::business("Account deletion failed", "ACCOUNT_DEL_001")
+    let complex_error = Error::business(2001, "Account deletion failed")
         .with_metadata_map(metadata)
         .with_source(permission_error);
     println!("{}\n", complex_error);
@@ -49,7 +49,7 @@ fn main() {
     let errors = vec![
         Error::database("DB error"),
         Error::network("Network error"),
-        Error::business("Business error", "BIZ_001"),
+        Error::business(3001, "Business error"),
         Error::validation("Validation error"),
     ];
 
@@ -133,7 +133,7 @@ fn risky_operation() -> Result<String> {
 
     if !user_input.contains('@') {
         return Err(Error::validation("Invalid email format")
-            .with_code("EMAIL_001")
+            .with_code(4001)
             .with_metadata("input", user_input)
             .with_metadata("expected_format", "user@domain.com"));
     }

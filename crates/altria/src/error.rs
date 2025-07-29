@@ -1,6 +1,17 @@
 //! # Altria Error Handling
 //!
-//! Altria provides an efficient, concise, and easy-to-use error handling system designed
+//! Altria provides an efficient, concise, and easy-to-use error handling syst///! # fn some_condition_fails() -> bool { true }
+//! fn risky_operation() -> Result<String> {
+//!     // Simulate potentially failing operation
+//!     if some_condition_fails() {
+//!         return Err(Error::validation("Invalid input")
+//!             .with_code(5001)
+//!             .with_metadata("field", "user_id"));
+//!     }me_condition_fails() {
+//!         return Err(Error::validation("Invalid input")
+//!             .with_code(5001)
+//!             .with_metadata("field", "user_id"));
+//!     }signed
 //! specifically for web development scenarios, fully integrated with Rust's standard
 //! library error chain mechanism.
 //!
@@ -60,7 +71,7 @@
 //! let validation_error = Error::validation("Invalid email format");
 //!
 //! // Business error (with error code)
-//! let business_error = Error::business("Invalid operation", "USER_001");
+//! let business_error = Error::business(1001, "Invalid operation");
 //! ```
 //!
 //! ### Adding Metadata
@@ -110,7 +121,7 @@
 //!     // Simulate potentially failing operation
 //!     if some_condition_fails() {
 //!         return Err(Error::validation("Invalid input")
-//!             .with_code("VALIDATION_001")
+//!             .with_code(5001)
 //!             .with_metadata("field", "user_id"));
 //!     }
 //!
@@ -167,7 +178,7 @@
 //! metadata.insert("timestamp".to_string(), "2025-07-28T15:30:00Z".to_string());
 //!
 //! let source_error = Error::auth("Insufficient permissions");
-//! let complex_error = Error::business("Operation failed", "BIZ_001")
+//! let complex_error = Error::business(2001, "Operation failed")
 //!     .with_metadata_map(metadata)
 //!     .with_source(source_error);
 //! ```
@@ -272,7 +283,7 @@ pub struct Error {
     /// Primary error message
     message: String,
     /// Custom error code (mainly for business errors)
-    code: Option<String>,
+    code: Option<i32>,
     /// Stack trace captured at error creation
     backtrace: Backtrace,
     /// Additional metadata
@@ -317,15 +328,15 @@ impl Error {
     ///
     /// ```rust
     /// # use altria::error::Error;
-    /// let error = Error::business("Invalid operation", "USER_001");
+    /// let error = Error::business(1001, "Invalid operation");
     /// assert!(error.is_business());
-    /// assert_eq!(error.code(), Some("USER_001"));
+    /// assert_eq!(error.code(), Some(1001));
     /// ```
-    pub fn business(message: impl Into<String>, code: impl Into<String>) -> Self {
+    pub fn business(code: i32, message: impl Into<String>) -> Self {
         Self {
             kind: ErrorKind::Business,
             message: message.into(),
-            code: Some(code.into()),
+            code: Some(code),
             backtrace: Backtrace::capture(),
             metadata: HashMap::new(),
             source: None,
@@ -383,8 +394,8 @@ impl Error {
     }
 
     /// Get the error code
-    pub fn code(&self) -> Option<&str> {
-        self.code.as_deref()
+    pub fn code(&self) -> Option<i32> {
+        self.code
     }
 
     /// Get the backtrace
@@ -403,8 +414,8 @@ impl Error {
     }
 
     /// Set custom error code
-    pub fn with_code(mut self, code: impl Into<String>) -> Self {
-        self.code = Some(code.into());
+    pub fn with_code(mut self, code: i32) -> Self {
+        self.code = Some(code);
         self
     }
 
@@ -705,9 +716,9 @@ mod tests {
 
     #[test]
     fn test_business_error_with_code() {
-        let err = Error::business("Invalid user input", "USER_001");
+        let err = Error::business(1001, "Invalid user input");
         assert!(err.is_business());
-        assert_eq!(err.code(), Some("USER_001"));
+        assert_eq!(err.code(), Some(1001));
     }
 
     #[test]
@@ -737,13 +748,13 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        let err = Error::business("Invalid operation", "BIZ_001")
+        let err = Error::business(1001, "Invalid operation")
             .with_metadata("user_id", "123")
             .with_metadata("action", "delete");
 
         let display_str = format!("{}", err);
         assert!(display_str.contains("Error: Invalid operation"));
-        assert!(display_str.contains("Code: BIZ_001"));
+        assert!(display_str.contains("Code: 1001"));
         assert!(display_str.contains("Kind: BUSINESS"));
         assert!(display_str.contains("user_id: 123"));
         assert!(display_str.contains("Backtrace:"));
