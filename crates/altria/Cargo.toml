@@ -18,5 +18,4 @@ path = "examples/error_usage.rs"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-paste = "1.0"
 serde_json = "1.0"

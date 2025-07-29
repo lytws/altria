@@ -244,7 +244,6 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use paste::paste;
 use serde::{Deserialize, Serialize};
 use std::backtrace::Backtrace;
 
@@ -264,6 +263,7 @@ macro_rules! define_error_kinds {
         $(#[$variant_doc:meta])*
         $variant:ident => {
             method: $method_name:ident,
+            check_method: $check_method:ident,
             display: $display_name:literal,
             doc: $method_doc:literal,
             check_doc: $check_doc:literal,
@@ -315,15 +315,13 @@ macro_rules! define_error_kinds {
                 }
             )*
 
-            // Generate kind checking methods using paste! macro
-            paste! {
-                $(
-                    #[doc = $check_doc]
-                    pub fn [<is_ $method_name>](&self) -> bool {
-                        self.is_kind(&ErrorKind::$variant)
-                    }
-                )*
-            }
+            // Generate kind checking methods with explicit names
+            $(
+                #[doc = $check_doc]
+                pub fn $check_method(&self) -> bool {
+                    self.is_kind(&ErrorKind::$variant)
+                }
+            )*
         }
     };
 }
@@ -333,6 +331,7 @@ define_error_kinds! {
     /// Database-related errors
     Database => {
         method: database,
+        check_method: is_database,
         display: "DATABASE",
         doc: "Create a new database error",
         check_doc: "Check if error is a database error",
@@ -340,6 +339,7 @@ define_error_kinds! {
     /// Input/Output errors
     Io => {
         method: io,
+        check_method: is_io,
         display: "IO",
         doc: "Create a new IO error",
         check_doc: "Check if error is an IO error",
@@ -347,6 +347,7 @@ define_error_kinds! {
     /// Network/HTTP errors
     Network => {
         method: network,
+        check_method: is_network,
         display: "NETWORK",
         doc: "Create a new network error",
         check_doc: "Check if error is a network error",
@@ -354,6 +355,7 @@ define_error_kinds! {
     /// Authentication/Authorization errors
     Auth => {
         method: auth,
+        check_method: is_auth,
         display: "AUTH",
         doc: "Create a new auth error",
         check_doc: "Check if error is an auth error",
@@ -361,6 +363,7 @@ define_error_kinds! {
     /// Validation errors
     Validation => {
         method: validation,
+        check_method: is_validation,
         display: "VALIDATION",
         doc: "Create a new validation error",
         check_doc: "Check if error is a validation error",
@@ -368,6 +371,7 @@ define_error_kinds! {
     /// Configuration errors
     Config => {
         method: config,
+        check_method: is_config,
         display: "CONFIG",
         doc: "Create a new config error",
         check_doc: "Check if error is a config error",
@@ -375,6 +379,7 @@ define_error_kinds! {
     /// Cache-related errors
     Cache => {
         method: cache,
+        check_method: is_cache,
         display: "CACHE",
         doc: "Create a new cache error",
         check_doc: "Check if error is a cache error",
@@ -382,6 +387,7 @@ define_error_kinds! {
     /// Custom business logic errors
     Business => {
         method: business_simple,
+        check_method: is_business_simple,
         display: "BUSINESS",
         doc: "Create a new simple business error without code (use Error::business(code, message) for business errors with codes)",
         check_doc: "Check if error is a business error",
@@ -389,6 +395,7 @@ define_error_kinds! {
     /// External service errors
     External => {
         method: external,
+        check_method: is_external,
         display: "EXTERNAL",
         doc: "Create a new external service error",
         check_doc: "Check if error is an external error",
@@ -396,6 +403,7 @@ define_error_kinds! {
     /// Internal system errors
     Internal => {
         method: internal,
+        check_method: is_internal,
         display: "INTERNAL",
         doc: "Create a new internal error",
         check_doc: "Check if error is an internal error",
@@ -403,6 +411,7 @@ define_error_kinds! {
     /// Unknown or unspecified errors
     Unknown => {
         method: unknown,
+        check_method: is_unknown,
         display: "UNKNOWN",
         doc: "Create a new unknown error",
         check_doc: "Check if error is an unknown error",
