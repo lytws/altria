@@ -1,23 +1,18 @@
 //! # Altria Error Handling
 //!
-//! Altria provides an efficient, concise, and easy-to-use error handling syst///! # fn some_condition_fails() -> bool { true }
-//! fn risky_operation() -> Result<String> {
-//!     // Simulate potentially failing operation
-//!     if some_condition_fails() {
-//!         return Err(Error::validation("Invalid input")
-//!             .with_code(5001)
-//!             .with_metadata("field", "user_id"));
-//!     }me_condition_fails() {
-//!         return Err(Error::validation("Invalid input")
-//!             .with_code(5001)
-//!             .with_metadata("field", "user_id"));
-//!     }signed
+//! Altria provides an efficient, concise, and easy-to-use error handling system
 //! specifically for web development scenarios, fully integrated with Rust's standard
 //! library error chain mechanism.
 //!
 //! ## Features
 //!
-//! ### 1. Quick Error Classification
+//! ### 1. Configurable Backtrace Capture
+//! Backtrace capture can be controlled for optimal performance:
+//! - **Default Behavior**: Backtraces are not captured by default for better performance
+//! - **Explicit Capture**: Use `with_backtrace()` method to capture backtrace when needed
+//! - **Environment Control**: Standard `RUST_BACKTRACE` environment variable controls backtrace detail level
+//!
+//! ### 2. Quick Error Classification
 //! Supports fast identification of various common error types:
 //! - [`ErrorKind::Database`] - Database-related errors
 //! - [`ErrorKind::Io`] - Input/output errors
@@ -30,30 +25,48 @@
 //! - [`ErrorKind::Internal`] - Internal system errors
 //! - [`ErrorKind::Unknown`] - Unknown or unclassified errors
 //!
-//! ### 2. Complete Error Information
+//! ### 3. Complete Error Information
 //! Each error contains:
 //! - Error message (required)
 //! - Error code (optional, mainly for business errors)
 //! - Error type (automatic classification)
-//! - Error stack trace (automatically captured)
+//! - Error stack trace (optional, configurable for performance)
 //! - Metadata (optional key-value pairs)
 //! - Source error chain (using Rust's standard library `std::error::Error` trait)
 //!
-//! ### 3. Standard Library Compatible Error Chain
+//! ### 4. Standard Library Compatible Error Chain
 //! - **Fully compatible with `std::error::Error` trait**: Can be used with any error type that implements `std::error::Error`
 //! - **Standardized error chain traversal**: Uses the `source()` method for error chain recursion
 //! - **Third-party library compatibility**: Works directly with libraries like `anyhow`, `thiserror`, etc.
 //!
-//! ### 4. Structured Error Output
+//! ### 5. Structured Error Output
 //! Error output is formatted in the following order:
 //! 1. Error message
 //! 2. Error code (if present)
 //! 3. Error type
 //! 4. Metadata (if present)
-//! 5. Error stack trace
+//! 5. Error stack trace (if captured)
 //! 6. Source error chain (if present)
 //!
 //! ## Basic Usage
+//!
+//! ### Backtrace Configuration
+//!
+//! ```rust
+//! use altria::error::Error;
+//!
+//! // By default, no backtrace is captured (for performance)
+//! let error = Error::database("Connection failed");
+//! assert!(error.backtrace().is_none());
+//!
+//! // Explicitly capture backtrace when needed
+//! let error_with_trace = Error::database("Critical error")
+//!     .with_backtrace();
+//! assert!(error_with_trace.backtrace().is_some());
+//!
+//! // The standard RUST_BACKTRACE environment variable controls
+//! // backtrace formatting when displaying errors
+//! ```
 //!
 //! ### Creating Errors
 //!
@@ -284,8 +297,8 @@ pub struct Error {
     message: String,
     /// Custom error code (mainly for business errors)
     code: Option<i32>,
-    /// Stack trace captured at error creation
-    backtrace: Backtrace,
+    /// Stack trace captured at error creation (optional for performance)
+    backtrace: Option<Backtrace>,
     /// Additional metadata
     metadata: HashMap<String, String>,
     /// Source error chain (using std::error::Error trait)
@@ -298,6 +311,9 @@ impl Error {
     /// This is the basic constructor for creating errors. For convenience,
     /// consider using the specialized constructors like [`Error::database`],
     /// [`Error::validation`], etc.
+    ///
+    /// By default, backtrace is not captured for performance reasons.
+    /// Use [`Error::with_backtrace`] to capture backtrace when needed.
     ///
     /// # Examples
     ///
@@ -312,7 +328,7 @@ impl Error {
             kind,
             message: message.into(),
             code: None,
-            backtrace: Backtrace::capture(),
+            backtrace: None,
             metadata: HashMap::new(),
             source: None,
         }
@@ -335,9 +351,9 @@ impl Error {
         self.code
     }
 
-    /// Get the backtrace
-    pub fn backtrace(&self) -> &Backtrace {
-        &self.backtrace
+    /// Get the backtrace (if captured)
+    pub fn backtrace(&self) -> Option<&Backtrace> {
+        self.backtrace.as_ref()
     }
 
     /// Get the metadata
@@ -353,6 +369,25 @@ impl Error {
     /// Set custom error code
     pub fn with_code(mut self, code: i32) -> Self {
         self.code = Some(code);
+        self
+    }
+
+    /// Force enable backtrace for this error (captures if not already present)
+    ///
+    /// This method allows you to enable backtrace for a specific error instance,
+    /// even if global backtrace capture is disabled.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use altria::error::Error;
+    /// let error = Error::database("Critical database error")
+    ///     .with_backtrace(); // Force capture backtrace for this error
+    /// ```
+    pub fn with_backtrace(mut self) -> Self {
+        if self.backtrace.is_none() {
+            self.backtrace = Some(Backtrace::capture());
+        }
         self
     }
 
@@ -489,9 +524,11 @@ impl fmt::Display for Error {
             }
         }
 
-        // 5. Stack trace
-        writeln!(f, "Backtrace:")?;
-        writeln!(f, "{}", self.backtrace)?;
+        // 5. Stack trace (if captured)
+        if let Some(backtrace) = &self.backtrace {
+            writeln!(f, "Backtrace:")?;
+            writeln!(f, "{}", backtrace)?;
+        }
 
         // 6. Source error chain
         if let Some(source) = &self.source {
@@ -638,14 +675,7 @@ macro_rules! define_error_kinds {
     (@constructor with_code, $method_name:ident, $variant:ident, $method_doc:literal) => {
         #[doc = $method_doc]
         pub fn $method_name(code: i32, message: impl Into<String>) -> Self {
-            Self {
-                kind: ErrorKind::$variant,
-                message: message.into(),
-                code: Some(code),
-                backtrace: Backtrace::capture(),
-                metadata: HashMap::new(),
-                source: None,
-            }
+            Self::new(ErrorKind::$variant, message).with_code(code)
         }
     };
 }
@@ -810,9 +840,11 @@ mod tests {
 
     #[test]
     fn test_error_display() {
+        // Test error with backtrace enabled
         let err = Error::business(1001, "Invalid operation")
             .with_metadata("user_id", "123")
-            .with_metadata("action", "delete");
+            .with_metadata("action", "delete")
+            .with_backtrace(); // Force backtrace capture
 
         let display_str = format!("{}", err);
         assert!(display_str.contains("Error: Invalid operation"));
@@ -838,5 +870,16 @@ mod tests {
         assert_eq!(cache_err.message(), "Redis connection failed");
         assert!(!cache_err.is_database());
         assert!(!cache_err.is_business());
+    }
+
+    #[test]
+    fn test_backtrace_configuration() {
+        // Test that errors don't have backtrace by default
+        let error_default = Error::database("Test error");
+        assert!(error_default.backtrace().is_none());
+
+        // Test explicit backtrace capture
+        let error_with_backtrace = Error::database("Test error").with_backtrace();
+        assert!(error_with_backtrace.backtrace().is_some());
     }
 }
