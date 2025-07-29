@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "A comprehensive Rust library for web server development"
 documentation = "https://docs.rs/altria"
 readme = "README.md"
-categories = ["web-programming", "http-server"]
+categories = ["web-programming"]
 keywords = ["web", "http"]
 authors = { workspace = true }
 license = { workspace = true }
