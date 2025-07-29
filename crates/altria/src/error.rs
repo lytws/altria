@@ -244,42 +244,169 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use paste::paste;
 use serde::{Deserialize, Serialize};
 use std::backtrace::Backtrace;
 
-/// Macro to generate error constructor methods
+/// Master macro to define all error kinds and generate associated code
 ///
-/// This macro reduces code duplication by automatically generating
-/// convenience constructor methods for different error kinds.
-macro_rules! impl_error_constructors {
+/// This macro is the single source of truth for all error types in the system.
+/// It automatically generates:
+/// - ErrorKind enum variants
+/// - Constructor methods (database, io, network, etc.)
+/// - Kind checking methods (is_database, is_io, is_network, etc.)
+/// - Display implementation for ErrorKind
+/// - Documentation for all generated items
+///
+/// To add a new error kind, simply add it to this macro definition.
+macro_rules! define_error_kinds {
     ($(
-        $(#[$doc:meta])*
-        $method_name:ident -> $kind:ident,
-    )*) => {
-        $(
-            $(#[$doc])*
-            pub fn $method_name(message: impl Into<String>) -> Self {
-                Self::new(ErrorKind::$kind, message)
+        $(#[$variant_doc:meta])*
+        $variant:ident => {
+            method: $method_name:ident,
+            display: $display_name:literal,
+            doc: $method_doc:literal,
+            check_doc: $check_doc:literal,
+        }
+    ),* $(,)?) => {
+        /// Error category enum for quick error type identification
+        ///
+        /// This enum provides semantic categorization of errors commonly encountered
+        /// in web development. Each variant represents a different category of error
+        /// that might require different handling strategies.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use altria::error::{Error, ErrorKind};
+        /// let db_error = Error::new(ErrorKind::Database, "Connection timeout");
+        /// let auth_error = Error::new(ErrorKind::Auth, "Invalid credentials");
+        ///
+        /// match db_error.kind() {
+        ///     ErrorKind::Database => println!("Handle database error"),
+        ///     ErrorKind::Auth => println!("Handle auth error"),
+        ///     _ => println!("Handle other errors"),
+        /// }
+        /// ```
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        pub enum ErrorKind {
+            $(
+                $(#[$variant_doc])*
+                $variant,
+            )*
+        }
+
+        impl fmt::Display for ErrorKind {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    $(
+                        ErrorKind::$variant => write!(f, $display_name),
+                    )*
+                }
             }
-        )*
+        }
+
+        impl Error {
+            // Generate constructor methods
+            $(
+                #[doc = $method_doc]
+                pub fn $method_name(message: impl Into<String>) -> Self {
+                    Self::new(ErrorKind::$variant, message)
+                }
+            )*
+
+            // Generate kind checking methods using paste! macro
+            paste! {
+                $(
+                    #[doc = $check_doc]
+                    pub fn [<is_ $method_name>](&self) -> bool {
+                        self.is_kind(&ErrorKind::$variant)
+                    }
+                )*
+            }
+        }
     };
 }
 
-/// Macro to generate error kind checking methods
-///
-/// This macro generates `is_*` methods for each error kind.
-macro_rules! impl_error_kind_checks {
-    ($(
-        $(#[$doc:meta])*
-        $method_name:ident -> $kind:ident,
-    )*) => {
-        $(
-            $(#[$doc])*
-            pub fn $method_name(&self) -> bool {
-                self.is_kind(&ErrorKind::$kind)
-            }
-        )*
-    };
+// Define all error kinds in one place - this is the single source of truth!
+define_error_kinds! {
+    /// Database-related errors
+    Database => {
+        method: database,
+        display: "DATABASE",
+        doc: "Create a new database error",
+        check_doc: "Check if error is a database error",
+    },
+    /// Input/Output errors
+    Io => {
+        method: io,
+        display: "IO",
+        doc: "Create a new IO error",
+        check_doc: "Check if error is an IO error",
+    },
+    /// Network/HTTP errors
+    Network => {
+        method: network,
+        display: "NETWORK",
+        doc: "Create a new network error",
+        check_doc: "Check if error is a network error",
+    },
+    /// Authentication/Authorization errors
+    Auth => {
+        method: auth,
+        display: "AUTH",
+        doc: "Create a new auth error",
+        check_doc: "Check if error is an auth error",
+    },
+    /// Validation errors
+    Validation => {
+        method: validation,
+        display: "VALIDATION",
+        doc: "Create a new validation error",
+        check_doc: "Check if error is a validation error",
+    },
+    /// Configuration errors
+    Config => {
+        method: config,
+        display: "CONFIG",
+        doc: "Create a new config error",
+        check_doc: "Check if error is a config error",
+    },
+    /// Cache-related errors
+    Cache => {
+        method: cache,
+        display: "CACHE",
+        doc: "Create a new cache error",
+        check_doc: "Check if error is a cache error",
+    },
+    /// Custom business logic errors
+    Business => {
+        method: business_simple,
+        display: "BUSINESS",
+        doc: "Create a new simple business error without code (use Error::business(code, message) for business errors with codes)",
+        check_doc: "Check if error is a business error",
+    },
+    /// External service errors
+    External => {
+        method: external,
+        display: "EXTERNAL",
+        doc: "Create a new external service error",
+        check_doc: "Check if error is an external error",
+    },
+    /// Internal system errors
+    Internal => {
+        method: internal,
+        display: "INTERNAL",
+        doc: "Create a new internal error",
+        check_doc: "Check if error is an internal error",
+    },
+    /// Unknown or unspecified errors
+    Unknown => {
+        method: unknown,
+        display: "UNKNOWN",
+        doc: "Create a new unknown error",
+        check_doc: "Check if error is an unknown error",
+    },
 }
 
 /// Comprehensive error type for web development
@@ -378,27 +505,7 @@ impl Error {
         }
     }
 
-    // Convenience constructors generated by macro
-    impl_error_constructors! {
-        /// Create a new database error
-        database -> Database,
-        /// Create a new IO error
-        io -> Io,
-        /// Create a new network error
-        network -> Network,
-        /// Create a new auth error
-        auth -> Auth,
-        /// Create a new validation error
-        validation -> Validation,
-        /// Create a new config error
-        config -> Config,
-        /// Create a new external service error
-        external -> External,
-        /// Create a new internal error
-        internal -> Internal,
-        /// Create a new unknown error
-        unknown -> Unknown,
-    }
+    // Convenience constructors generated by macro above
 
     /// Get the error kind
     pub fn kind(&self) -> &ErrorKind {
@@ -497,28 +604,11 @@ impl Error {
         &self.kind == kind
     }
 
-    // Error kind checking methods generated by macro
-    impl_error_kind_checks! {
-        /// Check if error is a database error
-        is_database -> Database,
-        /// Check if error is an IO error
-        is_io -> Io,
-        /// Check if error is a network error
-        is_network -> Network,
-        /// Check if error is an auth error
-        is_auth -> Auth,
-        /// Check if error is a validation error
-        is_validation -> Validation,
-        /// Check if error is a business error
-        is_business -> Business,
-        /// Check if error is a config error
-        is_config -> Config,
-        /// Check if error is an external error
-        is_external -> External,
-        /// Check if error is an internal error
-        is_internal -> Internal,
-        /// Check if error is an unknown error
-        is_unknown -> Unknown,
+    // Error kind checking methods generated by macro above
+
+    /// Convenience method for business error checking (alias for is_business_simple)
+    pub fn is_business(&self) -> bool {
+        self.is_business_simple()
     }
 
     /// Get error chain using std::error::Error's source mechanism
@@ -659,55 +749,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// ```rust
 /// # use altria::error::{Error, ErrorKind};
 /// let db_error = Error::new(ErrorKind::Database, "Connection timeout");
-/// let auth_error = Error::new(ErrorKind::Auth, "Invalid credentials");
-///
-/// match db_error.kind() {
-///     ErrorKind::Database => println!("Handle database error"),
-///     ErrorKind::Auth => println!("Handle auth error"),
-///     _ => println!("Handle other errors"),
-/// }
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ErrorKind {
-    /// Database-related errors
-    Database,
-    /// Input/Output errors
-    Io,
-    /// Network/HTTP errors
-    Network,
-    /// Authentication/Authorization errors
-    Auth,
-    /// Validation errors
-    Validation,
-    /// Configuration errors
-    Config,
-    /// Custom business logic errors
-    Business,
-    /// External service errors
-    External,
-    /// Internal system errors
-    Internal,
-    /// Unknown or unspecified errors
-    Unknown,
-}
-
-impl fmt::Display for ErrorKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ErrorKind::Database => write!(f, "DATABASE"),
-            ErrorKind::Io => write!(f, "IO"),
-            ErrorKind::Network => write!(f, "NETWORK"),
-            ErrorKind::Auth => write!(f, "AUTH"),
-            ErrorKind::Validation => write!(f, "VALIDATION"),
-            ErrorKind::Config => write!(f, "CONFIG"),
-            ErrorKind::Business => write!(f, "BUSINESS"),
-            ErrorKind::External => write!(f, "EXTERNAL"),
-            ErrorKind::Internal => write!(f, "INTERNAL"),
-            ErrorKind::Unknown => write!(f, "UNKNOWN"),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -771,5 +812,16 @@ mod tests {
         assert_eq!(format!("{}", ErrorKind::Database), "DATABASE");
         assert_eq!(format!("{}", ErrorKind::Business), "BUSINESS");
         assert_eq!(format!("{}", ErrorKind::Validation), "VALIDATION");
+        assert_eq!(format!("{}", ErrorKind::Cache), "CACHE");
+    }
+
+    #[test]
+    fn test_new_cache_error_type() {
+        let cache_err = Error::cache("Redis connection failed");
+        assert!(cache_err.is_cache());
+        assert_eq!(cache_err.kind(), &ErrorKind::Cache);
+        assert_eq!(cache_err.message(), "Redis connection failed");
+        assert!(!cache_err.is_database());
+        assert!(!cache_err.is_business());
     }
 }
