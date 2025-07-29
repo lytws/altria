@@ -257,7 +257,6 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
 use std::backtrace::Backtrace;
 
 /// Comprehensive error type for web development
@@ -553,12 +552,6 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<serde_json::Error> for Error {
-    fn from(err: serde_json::Error) -> Self {
-        Error::validation(format!("JSON serialization error: {err}"))
-    }
-}
-
 /// Convenient type alias for `std::result::Result<T, Error>`
 ///
 /// This type alias provides a shorter way to work with results that use our [`Error`] type.
@@ -624,7 +617,7 @@ macro_rules! define_error_kinds {
         ///     _ => println!("Handle other errors"),
         /// }
         /// ```
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
         pub enum ErrorKind {
             $(
                 $(#[$variant_doc])*

@@ -1,6 +1,6 @@
 [package]
 name = "altria"
-version = "0.1.0"
+version = "0.1.1"
 description = "A comprehensive Rust library for web server development"
 documentation = "https://docs.rs/altria"
 readme = "README.md"
@@ -17,5 +17,3 @@ name = "error_usage"
 path = "examples/error_usage.rs"
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
