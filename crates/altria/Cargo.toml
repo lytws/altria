@@ -1,6 +1,6 @@
 [package]
 name = "altria"
-version = "0.1.1"
+version = "0.0.1"
 description = "A comprehensive Rust library for web server development"
 documentation = "https://docs.rs/altria"
 readme = "README.md"
