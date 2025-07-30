@@ -585,4 +585,63 @@ mod tests {
         let chain: Vec<_> = current_error.iter_error_chain().collect();
         assert_eq!(chain.len(), 6); // 0 through 5
     }
+
+    #[test]
+    fn test_error_with_code_from_environment() {
+        use std::env;
+
+        // Test with valid environment variable
+        unsafe {
+            env::set_var("ALTRIA_ERR_CODE", "500");
+        }
+
+        let error_code = env::var("ALTRIA_ERR_CODE")
+            .ok()
+            .and_then(|s| s.parse::<i32>().ok())
+            .unwrap_or(0);
+
+        let error = Error::new("Environment-based error")
+            .with_code(error_code)
+            .with_metadata("source", "environment_variable");
+
+        assert_eq!(error.code(), Some(500));
+        assert_eq!(error.message(), "Environment-based error");
+        assert_eq!(
+            error.metadata().get("source"),
+            Some(&"environment_variable".to_string())
+        );
+
+        // Test with invalid environment variable (non-numeric)
+        unsafe {
+            env::set_var("ALTRIA_ERR_CODE", "invalid");
+        }
+
+        let fallback_code = env::var("ALTRIA_ERR_CODE")
+            .ok()
+            .and_then(|s| s.parse::<i32>().ok())
+            .unwrap_or(999); // Fallback value
+
+        let error_with_fallback = Error::new("Error with fallback code").with_code(fallback_code);
+
+        assert_eq!(error_with_fallback.code(), Some(999));
+
+        // Test without environment variable
+        unsafe {
+            env::remove_var("ALTRIA_ERR_CODE");
+        }
+
+        let default_code = env::var("ALTRIA_ERR_CODE")
+            .ok()
+            .and_then(|s| s.parse::<i32>().ok())
+            .unwrap_or(1); // Default value
+
+        let error_with_default = Error::new("Error with default code").with_code(default_code);
+
+        assert_eq!(error_with_default.code(), Some(1));
+
+        // Clean up
+        unsafe {
+            env::remove_var("ALTRIA_ERR_CODE");
+        }
+    }
 }
