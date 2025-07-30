@@ -129,21 +129,15 @@ impl Error {
     /// let main_error = Error::config("Config load failed")
     ///     .with_source(source);
     ///
-    /// let chain = main_error.error_chain();
+    /// let chain: Vec<_> = main_error.iter_error_chain().collect();
     /// assert_eq!(chain.len(), 2);
     /// // chain[0] is the main_error
     /// // chain[1] is the source error
     /// ```
-    pub fn error_chain(&self) -> Vec<&(dyn std::error::Error + 'static)> {
-        let mut chain = vec![self as &(dyn std::error::Error + 'static)];
-        let mut current = self as &(dyn std::error::Error + 'static);
-
-        while let Some(source) = current.source() {
-            chain.push(source);
-            current = source;
+    pub fn iter_error_chain(&self) -> ErrorChainIter<'_> {
+        ErrorChainIter {
+            current: Some(self),
         }
-
-        chain
     }
 }
 
@@ -189,5 +183,22 @@ impl std::error::Error for Error {
         self.source
             .as_deref()
             .map(|e| e as &(dyn std::error::Error + 'static))
+    }
+}
+
+/// An iterator over an error and its sources.
+pub struct ErrorChainIter<'a> {
+    current: Option<&'a (dyn std::error::Error + 'static)>,
+}
+
+impl<'a> Iterator for ErrorChainIter<'a> {
+    type Item = &'a (dyn std::error::Error + 'static);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current_error = self.current;
+        if let Some(error) = current_error {
+            self.current = error.source();
+        }
+        current_error
     }
 }
