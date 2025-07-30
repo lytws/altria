@@ -76,13 +76,6 @@ fn main() {
     for (i, error) in chain.iter().enumerate() {
         println!("  {}: {}", i + 1, error);
     }
-
-    // Using our specific Altria error chain (for type-specific operations)
-    let altria_chain = top_error.error_chain_as_altria_errors();
-    println!("Altria error chain has {} errors:", altria_chain.len());
-    for (i, error) in altria_chain.iter().enumerate() {
-        println!("  {}: {} ({})", i + 1, error.message(), error.kind());
-    }
     println!();
 
     // Example 8: Interoperability with standard library errors

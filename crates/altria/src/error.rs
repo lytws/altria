@@ -478,23 +478,6 @@ impl Error {
 
         chain
     }
-
-    /// Get error chain as our Error types (for testing and specific use cases)
-    pub fn error_chain_as_altria_errors(&self) -> Vec<&Error> {
-        let mut chain = vec![self];
-        let mut current_source = self.source.as_deref();
-
-        while let Some(source) = current_source {
-            if let Some(altria_error) = source.downcast_ref::<Error>() {
-                chain.push(altria_error);
-                current_source = altria_error.source.as_deref();
-            } else {
-                break;
-            }
-        }
-
-        chain
-    }
 }
 
 impl fmt::Display for Error {
@@ -819,11 +802,6 @@ mod tests {
     fn test_error_chain() {
         let source_err = Error::io("File not found");
         let main_err = Error::config("Configuration loading failed").with_source(source_err);
-
-        let chain = main_err.error_chain_as_altria_errors();
-        assert_eq!(chain.len(), 2);
-        assert!(chain[0].is_config());
-        assert!(chain[1].is_io());
 
         // Test standard library error chain
         let std_chain = main_err.error_chain();
