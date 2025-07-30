@@ -12,8 +12,4 @@ homepage = { workspace = true }
 repository = { workspace = true }
 edition = { workspace = true }
 
-[[example]]
-name = "error_usage"
-path = "examples/error_usage.rs"
-
 [dependencies]
