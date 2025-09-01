@@ -1,0 +1,12 @@
+[package]
+name = "altria-axum"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+axum = "0.8.4"
+axum-extra = { version = "0.10.1", features = ["typed-header"] }
