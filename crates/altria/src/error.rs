@@ -1,248 +1,225 @@
-//! Error handling for the Altria library.
+//! Error handling module for Altria
 //!
-//! This module provides a comprehensive error handling system built around the [`Error`] struct,
-//! which implements Rust's standard error handling patterns while providing additional features
-//! like metadata, error codes, backtraces, and error chaining.
-//!
-//! # Features
-//!
-//! - **Structured Error Information**: Store error messages, codes, and custom metadata
-//! - **Error Chaining**: Chain errors together using Rust's standard `std::error::Error` trait
-//! - **Backtraces**: Optional capture of call stack information for debugging
-//! - **Builder Pattern**: Fluent API for constructing complex errors
-//! - **Iterator Support**: Traverse error chains using standard Rust iterators
-//!
-//! # Examples
-//!
-//! ## Basic Error Creation
-//!
-//! ```rust
-//! use altria::error::Error;
-//!
-//! let error = Error::new("Something went wrong");
-//! println!("{}", error);
-//! ```
-//!
-//! ## Error with Metadata and Code
-//!
-//! ```rust
-//! use altria::error::Error;
-//!
-//! let error = Error::new("Validation failed")
-//!     .with_code(400)
-//!     .with_metadata("field", "email")
-//!     .with_metadata("value", "invalid@email");
-//!
-//! println!("Error code: {:?}", error.code());
-//! println!("Field: {:?}", error.metadata().get("field"));
-//! ```
-//!
-//! ## Error Chaining
-//!
-//! ```rust
-//! use altria::error::Error;
-//! use std::io;
-//!
-//! let io_error = io::Error::new(io::ErrorKind::NotFound, "config.toml not found");
-//! let app_error = Error::new("Failed to load configuration")
-//!     .with_source(io_error);
-//!
-//! // Traverse the error chain
-//! for error in app_error.iter_error_chain() {
-//!     println!("Error: {}", error);
-//! }
-//! ```
-//!
-//! ## With Backtrace (for debugging)
-//!
-//! ```rust
-//! use altria::error::Error;
-//!
-//! let error = Error::new("Critical system failure")
-//!     .with_backtrace();
-//!
-//! println!("{}", error); // Will include backtrace in output
-//! ```
-//!
-//! # Error Chain Iteration
-//!
-//! The [`Error::iter_error_chain`] method returns an iterator that traverses the entire
-//! error chain, starting from the current error and following the source chain:
-//!
-//! ```rust
-//! use altria::error::Error;
-//!
-//! let root_cause = Error::new("Network timeout");
-//! let intermediate = Error::new("Service unavailable").with_source(root_cause);
-//! let top_level = Error::new("Request failed").with_source(intermediate);
-//!
-//! let errors: Vec<_> = top_level.iter_error_chain().collect();
-//! assert_eq!(errors.len(), 3);
-//! ```
-//!
-//! # Integration with Standard Library
-//!
-//! The [`Error`] type implements [`std::error::Error`], making it compatible with the
-//! standard Rust error handling ecosystem, including libraries like `anyhow` and `thiserror`.
+//! Provides a flexible and efficient error type with the following features:
+//! - Optional error code for API integration
+//! - Required error message
+//! - Optional source error for error chaining
+//! - Optional backtrace for debugging
+//! - Context key-value pairs for additional information
+//! - Thread-safe and Send + Sync compatible
 
 use std::backtrace::Backtrace;
 use std::collections::HashMap;
+use std::error::Error as StdError;
 use std::fmt;
 
-pub type Result<T> = std::result::Result<T, Error>;
-
-/// A comprehensive error type with support for error chaining, metadata, backtraces,
-/// and structured error information.
+/// A flexible error type for the Altria library
 ///
-/// This type is designed to be the primary error type for applications, providing
-/// rich error context while maintaining compatibility with Rust's standard error
-/// handling patterns.
+/// This error type is designed to be:
+/// - **Efficient**: Uses `Box` for optional fields to minimize size
+/// - **Flexible**: Supports error codes, messages, source errors, and extra context
+/// - **Debuggable**: Captures backtrace information when created
+/// - **Thread-safe**: Implements `Send` and `Sync`
+///
+/// # Examples
+///
+/// ```
+/// use altria::error::Error;
+///
+/// // Simple error with just a message
+/// let err = Error::new("Something went wrong");
+///
+/// // Error with code and message
+/// let err = Error::new("Not found").with_code(404);
+///
+/// // Error with context information
+/// let err = Error::new("Database error")
+///     .with_context_value("table", "users")
+///     .with_context_value("operation", "insert");
+/// ```
 #[derive(Debug)]
 pub struct Error {
-    /// Primary error message
+    /// Optional error code (e.g., HTTP status code, custom error code)
+    code: Option<i64>,
+    /// Required error message
     message: String,
-    /// Error code (optional)
-    code: Option<i32>,
-    /// Stack trace captured at error creation (optional for performance)
-    backtrace: Option<Backtrace>,
-    /// Additional metadata
-    metadata: HashMap<String, String>,
-    /// Source error chain (using `std::error::Error` trait)
-    source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+    /// Optional source error for error chain
+    source: Option<Box<dyn StdError + Send + Sync>>,
+    /// Optional backtrace for debugging
+    backtrace: Option<Box<Backtrace>>,
+    /// Context key-value pairs for additional information
+    context: HashMap<String, String>,
 }
 
 impl Error {
-    /// Create a new error with a message
+    /// Create a new error with just a message
+    ///
+    /// By default, backtrace is not captured for performance.
+    /// Use [`with_backtrace`](Self::with_backtrace) to enable it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use altria::error::Error;
+    ///
+    /// let err = Error::new("Something went wrong");
+    /// assert_eq!(err.message(), "Something went wrong");
+    /// assert!(err.backtrace().is_none()); // No backtrace by default
+    /// ```
     pub fn new(message: impl Into<String>) -> Self {
         Self {
-            message: message.into(),
             code: None,
-            backtrace: None,
-            metadata: HashMap::new(),
+            message: message.into(),
             source: None,
+            backtrace: None,
+            context: HashMap::new(),
         }
     }
 
-    /// Get the error message
-    pub fn message(&self) -> &str {
-        &self.message
-    }
-
-    /// Get the error code
-    pub const fn code(&self) -> Option<i32> {
-        self.code
-    }
-
-    /// Get the metadata
-    pub const fn metadata(&self) -> &HashMap<String, String> {
-        &self.metadata
-    }
-
-    /// Set custom error code
+    /// Add an error code (builder pattern)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use altria::error::Error;
+    ///
+    /// let err = Error::new("Error").with_code(500);
+    /// assert_eq!(err.code(), Some(500));
+    /// ```
     #[must_use]
-    pub const fn with_code(mut self, code: i32) -> Self {
+    pub const fn with_code(mut self, code: i64) -> Self {
         self.code = Some(code);
         self
     }
 
-    /// Capture and attach a backtrace to the error
-    ///
-    /// This method captures the current call stack and attaches it to the error.
-    /// This can be useful for debugging but may have performance implications.
+    /// Add a source error (builder pattern)
     ///
     /// # Examples
     ///
-    /// ```rust
-    /// # use altria::error::Error;
-    /// let error = Error::new("Something went wrong")
-    ///     .with_backtrace();
     /// ```
-    #[must_use]
-    pub fn with_backtrace(mut self) -> Self {
-        self.backtrace = Some(Backtrace::capture());
-        self
-    }
-
-    /// Add metadata to the error
-    ///
-    /// Metadata provides additional context about the error that can be useful
-    /// for debugging, logging, or error handling. This method can be chained
-    /// to add multiple metadata entries.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use altria::error::Error;
-    /// let error = Error::new("Invalid input")
-    ///     .with_metadata("field", "email")
-    ///     .with_metadata("value", "invalid@")
-    ///     .with_metadata("rule", "email_format");
-    ///
-    /// assert_eq!(error.metadata().get("field"), Some(&"email".to_string()));
-    /// ```
-    #[must_use]
-    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.metadata.insert(key.into(), value.into());
-        self
-    }
-
-    /// Add multiple metadata entries
-    #[must_use]
-    pub fn with_metadata_map(mut self, metadata: HashMap<String, String>) -> Self {
-        self.metadata.extend(metadata);
-        self
-    }
-
-    /// Chain with source error
-    ///
-    /// This method allows you to create an error chain by setting a source error.
-    /// The source error must implement `std::error::Error + Send + Sync + 'static`.
-    /// This integrates with Rust's standard error handling mechanisms.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// # use altria::error::Error;
+    /// use altria::error::Error;
     /// use std::io;
-    /// use std::error::Error as StdError; // Import trait for source() method
     ///
-    /// let io_error = io::Error::new(io::ErrorKind::NotFound, "File not found");
-    /// let app_error = Error::new("Failed to load config")
-    ///     .with_source(io_error);
-    ///
-    /// // You can traverse the error chain using std::error::Error::source()
-    /// assert!(app_error.source().is_some());
+    /// let io_err = io::Error::new(io::ErrorKind::NotFound, "file not found");
+    /// let err = Error::new("Failed to read file").with_source(io_err);
     /// ```
     #[must_use]
-    pub fn with_source<E>(mut self, source: E) -> Self
-    where
-        E: std::error::Error + Send + Sync + 'static,
-    {
+    pub fn with_source(mut self, source: impl StdError + Send + Sync + 'static) -> Self {
         self.source = Some(Box::new(source));
         self
     }
 
-    // Error kind checking methods generated by macro above
-
-    /// Get error chain as iterator using `std::error::Error`'s source mechanism
-    ///
-    /// This method returns an iterator over all errors in the chain, starting with
-    /// the current error and following the source chain. This is the standard
-    /// way to traverse error chains in Rust, providing lazy evaluation.
+    /// Add a single context key-value pair (builder pattern)
     ///
     /// # Examples
     ///
-    /// ```rust
-    /// # use altria::error::Error;
-    /// let source = Error::new("File not found");
-    /// let main_error = Error::new("Config load failed")
-    ///     .with_source(source);
-    ///
-    /// let chain: Vec<_> = main_error.iter_error_chain().collect();
-    /// assert_eq!(chain.len(), 2);
-    /// // chain[0] is the main_error
-    /// // chain[1] is the source error
     /// ```
+    /// use altria::error::Error;
+    ///
+    /// let err = Error::new("Database error")
+    ///     .with_context_value("table", "users")
+    ///     .with_context_value("operation", "insert");
+    /// ```
+    #[must_use]
+    pub fn with_context_value(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.context.insert(key.into(), value.into());
+        self
+    }
+
+    /// Add multiple context key-value pairs at once from a `HashMap`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use altria::error::Error;
+    /// use std::collections::HashMap;
+    ///
+    /// let mut ctx = HashMap::new();
+    /// ctx.insert("table".to_string(), "users".to_string());
+    /// ctx.insert("operation".to_string(), "insert".to_string());
+    ///
+    /// let err = Error::new("Database error").with_context_map(ctx);
+    /// assert_eq!(err.get_context("table"), Some("users"));
+    /// ```
+    #[must_use]
+    pub fn with_context_map(mut self, context: HashMap<String, String>) -> Self {
+        self.context.extend(context);
+        self
+    }
+
+    /// Enable backtrace capture for debugging
+    ///
+    /// Backtrace is disabled by default for performance. Use this method
+    /// when you need detailed stack trace information for debugging.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use altria::error::Error;
+    ///
+    /// let err = Error::new("Error").with_backtrace();
+    /// assert!(err.backtrace().is_some());
+    /// ```
+    #[must_use]
+    pub fn with_backtrace(mut self) -> Self {
+        self.backtrace = Some(Box::new(Backtrace::capture()));
+        self
+    }
+
+    /// Get the error code
+    #[must_use]
+    pub const fn code(&self) -> Option<i64> {
+        self.code
+    }
+
+    /// Get the error message
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Get the backtrace if available
+    #[must_use]
+    pub fn backtrace(&self) -> Option<&Backtrace> {
+        self.backtrace.as_deref()
+    }
+
+    /// Get all context information as a `HashMap`
+    #[must_use]
+    pub const fn context(&self) -> &HashMap<String, String> {
+        &self.context
+    }
+
+    /// Get a specific context value by key
+    pub fn get_context(&self, key: &str) -> Option<&str> {
+        self.context.get(key).map(String::as_str)
+    }
+
+    /// Returns an iterator over the entire error chain, starting from this error
+    ///
+    /// This iterator includes the current error as the first item,
+    /// followed by all source errors in the chain.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use altria::error::Error;
+    /// use std::error::Error as StdError;
+    /// use std::io;
+    ///
+    /// let io_err = io::Error::new(io::ErrorKind::NotFound, "file.txt not found");
+    /// let err = Error::new("Failed to read config")
+    ///     .with_source(io_err)
+    ///     .with_code(500);
+    ///
+    /// let chain: Vec<String> = err.iter_error_chain()
+    ///     .map(|e| e.to_string())
+    ///     .collect();
+    ///
+    /// assert_eq!(chain.len(), 2); // Current error + 1 source
+    /// assert!(chain[0].contains("Failed to read config"));
+    /// ```
+    #[must_use]
     pub fn iter_error_chain(&self) -> ErrorChainIter<'_> {
         ErrorChainIter {
             current: Some(self),
@@ -250,398 +227,337 @@ impl Error {
     }
 }
 
+/// Iterator over the complete error chain
+///
+/// Created by the [`Error::iter_error_chain`] method. Iterates over the entire error chain,
+/// starting from the current error and following the source chain.
+#[derive(Debug, Clone)]
+pub struct ErrorChainIter<'a> {
+    current: Option<&'a (dyn StdError + 'static)>,
+}
+
+impl<'a> Iterator for ErrorChainIter<'a> {
+    type Item = &'a (dyn StdError + 'static);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.current?;
+        self.current = current.source();
+        Some(current)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // 1. Error code (if present)
         if let Some(code) = self.code {
-            writeln!(f, "Code: {code}")?;
+            write!(f, "[{}] {}", code, self.message)?;
+        } else {
+            write!(f, "{}", self.message)?;
         }
 
-        // 2. Error message
-        writeln!(f, "Error: {}", self.message)?;
-
-        // 3. Metadata (if present)
-        if !self.metadata.is_empty() {
-            writeln!(f, "Metadata:")?;
-            for (key, value) in &self.metadata {
-                writeln!(f, "  {key}: {value}")?;
+        if !self.context.is_empty() {
+            write!(f, " (")?;
+            let mut first = true;
+            for (key, value) in &self.context {
+                if !first {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{key}: {value}")?;
+                first = false;
             }
-        }
-
-        // 4. Stack trace (if captured)
-        if let Some(backtrace) = &self.backtrace {
-            writeln!(f, "Backtrace:")?;
-            writeln!(f, "{backtrace}")?;
-        }
-
-        // 5. Source error chain
-        if let Some(source) = &self.source {
-            writeln!(f, "Caused by:")?;
-            let source_str = format!("{source}");
-            for line in source_str.lines() {
-                writeln!(f, "  {line}")?;
-            }
+            write!(f, ")")?;
         }
 
         Ok(())
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl StdError for Error {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
         self.source
             .as_deref()
-            .map(|e| e as &(dyn std::error::Error + 'static))
+            .map(|e| e as &(dyn StdError + 'static))
     }
 }
 
-/// An iterator over an error and its sources.
-///
-/// This iterator is created by the [`Error::iter_error_chain`] method and provides
-/// lazy traversal over the entire error chain, starting from the current error
-/// and following the source chain through the [`std::error::Error::source`] method.
+// Ensure Error is Send + Sync for async safety
+// The compiler will enforce this through the trait bounds on source
+// and the use of standard library types for other fields
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    let _ = assert_send_sync::<Error>;
+};
+
+/// Convenience type alias for Result with our Error type
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Helper macro for creating errors quickly with builder pattern support
 ///
 /// # Examples
 ///
-/// ```rust
-/// # use altria::error::Error;
-/// let root = Error::new("Root cause");
-/// let top = Error::new("Top level").with_source(root);
-///
-/// for (i, error) in top.iter_error_chain().enumerate() {
-///     println!("Level {}: {}", i, error);
-/// }
 /// ```
-pub struct ErrorChainIter<'a> {
-    current: Option<&'a (dyn std::error::Error + 'static)>,
+/// use altria::error;
+///
+/// // Simple error
+/// let err = error!("Something went wrong");
+///
+/// // Error with code
+/// let err = error!("Not found"; code: 404);
+///
+/// // Error with code and context
+/// let err = error!("Database error"; code: 500, "table" => "users", "op" => "insert");
+///
+/// // Error with format string
+/// let value = "request";
+/// let err = error!("Failed to process {}", value);
+///
+/// // Error with format string and code (use semicolon before code)
+/// let err = error!("User {} not found", "alice"; code: 404);
+/// ```
+#[macro_export]
+macro_rules! error {
+    // Format string with arguments, code, and context fields
+    // error!("msg {}", arg; code: 404, "key" => "value", "key2" => "value2")
+    ($fmt:literal, $($arg:expr),+ ; code: $code:expr, $($key:expr => $value:expr),+ $(,)?) => {{
+        let mut err = $crate::error::Error::new(format!($fmt, $($arg),+))
+            .with_code($code);
+        $(
+            err = err.with_context_value($key, $value);
+        )+
+        err
+    }};
+    // Format string with arguments and code
+    // error!("msg {}", arg; code: 404)
+    ($fmt:literal, $($arg:expr),+ ; code: $code:expr $(,)?) => {
+        $crate::error::Error::new(format!($fmt, $($arg),+))
+            .with_code($code)
+    };
+    // Format string with arguments and context fields
+    // error!("msg {}", arg; "key" => "value")
+    ($fmt:literal, $($arg:expr),+ ; $($key:expr => $value:expr),+ $(,)?) => {{
+        let mut err = $crate::error::Error::new(format!($fmt, $($arg),+));
+        $(
+            err = err.with_context_value($key, $value);
+        )+
+        err
+    }};
+    // Simple message with code and context fields
+    // error!("msg"; code: 404, "key" => "value")
+    ($msg:expr ; code: $code:expr, $($key:expr => $value:expr),+ $(,)?) => {{
+        let mut err = $crate::error::Error::new($msg).with_code($code);
+        $(
+            err = err.with_context_value($key, $value);
+        )+
+        err
+    }};
+    // Simple message with code
+    // error!("msg"; code: 404)
+    ($msg:expr ; code: $code:expr $(,)?) => {
+        $crate::error::Error::new($msg).with_code($code)
+    };
+    // Simple message with context fields
+    // error!("msg"; "key" => "value", "key2" => "value2")
+    ($msg:expr ; $($key:expr => $value:expr),+ $(,)?) => {{
+        let mut err = $crate::error::Error::new($msg);
+        $(
+            err = err.with_context_value($key, $value);
+        )+
+        err
+    }};
+    // Format string with arguments
+    ($fmt:literal, $($arg:expr),+ $(,)?) => {
+        $crate::error::Error::new(format!($fmt, $($arg),+))
+    };
+    // Simple string message
+    ($msg:expr $(,)?) => {
+        $crate::error::Error::new($msg)
+    };
 }
 
-impl<'a> Iterator for ErrorChainIter<'a> {
-    type Item = &'a (dyn std::error::Error + 'static);
+// Implement From for common error types for easy conversion
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Self::new("I/O error").with_source(err)
+    }
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let current_error = self.current;
-        if let Some(error) = current_error {
-            self.current = error.source();
-        }
-        current_error
+impl From<std::fmt::Error> for Error {
+    fn from(err: std::fmt::Error) -> Self {
+        Self::new("Formatting error").with_source(err)
+    }
+}
+
+impl From<String> for Error {
+    fn from(s: String) -> Self {
+        Self::new(s)
+    }
+}
+
+impl From<&str> for Error {
+    fn from(s: &str) -> Self {
+        Self::new(s)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::error::Error as StdError;
-    use std::io; // Import the trait
 
     #[test]
-    fn test_error_creation() {
-        let error = Error::new("Test error");
-        assert_eq!(error.message(), "Test error");
-        assert_eq!(error.code(), None);
-        assert!(error.metadata().is_empty());
-    }
-
-    #[test]
-    fn test_error_with_code() {
-        let error = Error::new("Test error").with_code(404);
-        assert_eq!(error.message(), "Test error");
-        assert_eq!(error.code(), Some(404));
-    }
-
-    #[test]
-    fn test_error_with_metadata() {
-        let error = Error::new("Test error")
-            .with_metadata("key1", "value1")
-            .with_metadata("key2", "value2");
-
-        assert_eq!(error.metadata().get("key1"), Some(&"value1".to_string()));
-        assert_eq!(error.metadata().get("key2"), Some(&"value2".to_string()));
-        assert_eq!(error.metadata().len(), 2);
-    }
-
-    #[test]
-    fn test_error_with_metadata_map() {
-        let mut metadata = HashMap::new();
-        metadata.insert("key1".to_string(), "value1".to_string());
-        metadata.insert("key2".to_string(), "value2".to_string());
-
-        let error = Error::new("Test error").with_metadata_map(metadata);
-
-        assert_eq!(error.metadata().get("key1"), Some(&"value1".to_string()));
-        assert_eq!(error.metadata().get("key2"), Some(&"value2".to_string()));
-        assert_eq!(error.metadata().len(), 2);
-    }
-
-    #[test]
-    fn test_error_with_source() {
-        let io_error = io::Error::new(io::ErrorKind::NotFound, "File not found");
-        let error = Error::new("Failed to read file").with_source(io_error);
-
-        assert!(error.source().is_some());
-        assert_eq!(error.source().unwrap().to_string(), "File not found");
-    }
-
-    #[test]
-    fn test_error_chaining() {
-        let root_error = Error::new("Root cause");
-        let middle_error = Error::new("Middle error").with_source(root_error);
-        let top_error = Error::new("Top level error").with_source(middle_error);
-
-        let chain: Vec<_> = top_error.iter_error_chain().collect();
-        assert_eq!(chain.len(), 3);
-
-        // Test the chain contents by checking error messages
-        assert!(chain[0].to_string().contains("Top level error"));
-        assert!(chain[1].to_string().contains("Middle error"));
-        assert!(chain[2].to_string().contains("Root cause"));
-    }
-
-    #[test]
-    fn test_error_chain_with_std_error() {
-        let io_error = io::Error::new(io::ErrorKind::PermissionDenied, "Access denied");
-        let app_error = Error::new("Cannot read config file").with_source(io_error);
-
-        let chain: Vec<_> = app_error.iter_error_chain().collect();
-        assert_eq!(chain.len(), 2);
-
-        assert!(chain[0].to_string().contains("Cannot read config file"));
-        assert_eq!(chain[1].to_string(), "Access denied");
-    }
-
-    #[test]
-    fn test_error_chain_iterator_empty() {
-        let error = Error::new("Single error");
-        let chain: Vec<_> = error.iter_error_chain().collect();
-        assert_eq!(chain.len(), 1);
-        assert!(chain[0].to_string().contains("Single error"));
-    }
-
-    #[test]
-    fn test_error_display_basic() {
-        let error = Error::new("Test error");
-        let display = format!("{}", error);
-        assert!(display.contains("Error: Test error"));
-    }
-
-    #[test]
-    fn test_error_display_with_code() {
-        let error = Error::new("Test error").with_code(500);
-        let display = format!("{}", error);
-        assert!(display.contains("Code: 500"));
-        assert!(display.contains("Error: Test error"));
-    }
-
-    #[test]
-    fn test_error_display_with_metadata() {
-        let error = Error::new("Test error")
-            .with_metadata("field", "email")
-            .with_metadata("value", "invalid@");
-
-        let display = format!("{}", error);
-        assert!(display.contains("Metadata:"));
-        assert!(display.contains("field: email"));
-        assert!(display.contains("value: invalid@"));
-    }
-
-    #[test]
-    fn test_error_display_with_source() {
-        let io_error = io::Error::new(io::ErrorKind::NotFound, "File not found");
-        let error = Error::new("Configuration error").with_source(io_error);
-
-        let display = format!("{}", error);
-        assert!(display.contains("Error: Configuration error"));
-        assert!(display.contains("Caused by:"));
-        assert!(display.contains("File not found"));
-    }
-
-    #[test]
-    fn test_error_display_comprehensive() {
-        let io_error = io::Error::new(io::ErrorKind::NotFound, "config.toml not found");
-        let error = Error::new("Failed to load configuration")
-            .with_code(404)
-            .with_metadata("file", "config.toml")
-            .with_metadata("operation", "read")
-            .with_source(io_error);
-
-        let display = format!("{}", error);
-        assert!(display.contains("Code: 404"));
-        assert!(display.contains("Error: Failed to load configuration"));
-        assert!(display.contains("Metadata:"));
-        assert!(display.contains("file: config.toml"));
-        assert!(display.contains("operation: read"));
-        assert!(display.contains("Caused by:"));
-        assert!(display.contains("config.toml not found"));
-    }
-
-    #[test]
-    fn test_error_debug() {
-        let error = Error::new("Test error").with_code(123);
-        let debug_str = format!("{:?}", error);
-        assert!(debug_str.contains("Error"));
-        assert!(debug_str.contains("Test error"));
-        assert!(debug_str.contains("123"));
-    }
-
-    #[test]
-    fn test_std_error_trait() {
-        let io_error = io::Error::new(io::ErrorKind::NotFound, "File not found");
-        let error = Error::new("App error").with_source(io_error);
-
-        // Test that our Error implements std::error::Error
-        let std_error: &dyn std::error::Error = &error;
-        assert!(std_error.source().is_some());
-    }
-
-    #[test]
-    fn test_result_type_alias() {
-        fn returns_error() -> Result<String> {
-            Err(Error::new("Something went wrong"))
-        }
-
-        match returns_error() {
-            Ok(_) => panic!("Expected error"),
-            Err(e) => assert_eq!(e.message(), "Something went wrong"),
-        }
-    }
-
-    #[test]
-    fn test_builder_pattern_chaining() {
-        let error = Error::new("Base error")
-            .with_code(400)
-            .with_metadata("type", "validation")
-            .with_metadata("field", "email");
-
-        assert_eq!(error.message(), "Base error");
-        assert_eq!(error.code(), Some(400));
-        assert_eq!(
-            error.metadata().get("type"),
-            Some(&"validation".to_string())
-        );
-        assert_eq!(error.metadata().get("field"), Some(&"email".to_string()));
+    fn test_basic_error() {
+        let err = Error::new("test error");
+        assert_eq!(err.message(), "test error");
+        assert_eq!(err.code(), None);
+        assert!(err.backtrace().is_none()); // No backtrace by default
     }
 
     #[test]
     fn test_error_with_backtrace() {
-        let error = Error::new("Test error").with_backtrace();
-
-        // We can't easily test the content of backtrace, but we can test that
-        // the display format includes "Backtrace:" when backtrace is present
-        let display = format!("{}", error);
-        assert!(display.contains("Error: Test error"));
-        // Note: Backtrace content will vary and may be empty in some environments
+        let err = Error::new("test error").with_backtrace();
+        assert!(err.backtrace().is_some());
     }
 
     #[test]
-    fn test_error_chain_iter_trait() {
-        let root = Error::new("Root");
-        let middle = Error::new("Middle").with_source(root);
-        let top = Error::new("Top").with_source(middle);
-
-        let mut iter = top.iter_error_chain();
-
-        // Test Iterator trait methods
-        assert!(iter.next().is_some()); // Top error
-        assert!(iter.next().is_some()); // Middle error  
-        assert!(iter.next().is_some()); // Root error
-        assert!(iter.next().is_none()); // End of chain
+    fn test_error_with_code() {
+        let err = Error::new("not found").with_code(404);
+        assert_eq!(err.message(), "not found");
+        assert_eq!(err.code(), Some(404));
     }
 
     #[test]
-    fn test_error_chain_iter_collect() {
-        let root = Error::new("Root");
-        let top = Error::new("Top").with_source(root);
+    fn test_error_with_context() {
+        let err = Error::new("database error")
+            .with_context_value("table", "users")
+            .with_context_value("operation", "insert");
 
-        let errors: Vec<_> = top.iter_error_chain().collect();
-        assert_eq!(errors.len(), 2);
-
-        // Can use other iterator methods
-        let count = top.iter_error_chain().count();
-        assert_eq!(count, 2);
+        assert_eq!(err.get_context("table"), Some("users"));
+        assert_eq!(err.get_context("operation"), Some("insert"));
+        assert_eq!(err.get_context("nonexistent"), None);
     }
 
     #[test]
-    fn test_metadata_with_different_types() {
-        let error = Error::new("Test")
-            .with_metadata("number", 42.to_string())
-            .with_metadata("boolean", true.to_string())
-            .with_metadata("string", "value");
+    fn test_error_display() {
+        let err = Error::new("internal error").with_code(500);
+        assert_eq!(err.to_string(), "[500] internal error");
 
-        assert_eq!(error.metadata().get("number"), Some(&"42".to_string()));
-        assert_eq!(error.metadata().get("boolean"), Some(&"true".to_string()));
-        assert_eq!(error.metadata().get("string"), Some(&"value".to_string()));
+        let err = Error::new("simple error");
+        assert_eq!(err.to_string(), "simple error");
+
+        let err = Error::new("error").with_context_value("key", "value");
+        assert_eq!(err.to_string(), "error (key: value)");
     }
 
     #[test]
-    fn test_error_source_chain_depth() {
-        // Create a deep error chain
-        let mut current_error = Error::new("Level 0");
+    fn test_error_source() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let err = Error::new("failed to read").with_source(io_err);
 
-        for i in 1..=5 {
-            let new_error = Error::new(format!("Level {}", i)).with_source(current_error);
-            current_error = new_error;
-        }
-
-        let chain: Vec<_> = current_error.iter_error_chain().collect();
-        assert_eq!(chain.len(), 6); // 0 through 5
+        assert!(err.source().is_some());
+        assert_eq!(err.message(), "failed to read");
     }
 
     #[test]
-    fn test_error_with_code_from_environment() {
-        use std::env;
+    fn test_error_chain_iterator() {
+        use std::io;
 
-        // Test with valid environment variable
-        unsafe {
-            env::set_var("ALTRIA_ERR_CODE", "500");
+        // Chain with source
+        let io_err = io::Error::new(io::ErrorKind::NotFound, "file.txt not found");
+        let err = Error::new("Failed to read config").with_source(io_err);
+
+        let chain: Vec<_> = err.iter_error_chain().collect();
+        assert_eq!(chain.len(), 2); // Current error + 1 source
+
+        // No source - only current error
+        let err = Error::new("simple error");
+        let chain: Vec<_> = err.iter_error_chain().collect();
+        assert_eq!(chain.len(), 1); // Only current error
+    }
+
+    #[test]
+    fn test_error_macro() {
+        let err = error!("simple");
+        assert_eq!(err.message(), "simple");
+
+        let err = error!("not found"; code: 404);
+        assert_eq!(err.code(), Some(404));
+        assert_eq!(err.message(), "not found");
+
+        let value = "test";
+        let err = error!("format {}", value);
+        assert_eq!(err.message(), "format test");
+
+        let err = error!("error"; "key" => "value", "key2" => "value2");
+        assert_eq!(err.get_context("key"), Some("value"));
+        assert_eq!(err.get_context("key2"), Some("value2"));
+
+        let err = error!("error"; code: 500, "table" => "users");
+        assert_eq!(err.code(), Some(500));
+        assert_eq!(err.get_context("table"), Some("users"));
+
+        let err = error!("user {}", "alice"; code: 404);
+        assert_eq!(err.message(), "user alice");
+        assert_eq!(err.code(), Some(404));
+    }
+
+    #[test]
+    fn test_with_context_map() {
+        use std::collections::HashMap;
+
+        let mut ctx = HashMap::new();
+        ctx.insert("table".to_string(), "users".to_string());
+        ctx.insert("operation".to_string(), "insert".to_string());
+
+        let err = Error::new("Database error").with_context_map(ctx);
+        assert_eq!(err.get_context("table"), Some("users"));
+        assert_eq!(err.get_context("operation"), Some("insert"));
+    }
+
+    #[test]
+    fn test_object_safety() {
+        // Test that Error can be used as a trait object (dynamic dispatch)
+        let err = Error::new("test error").with_code(500);
+        let trait_obj: &dyn StdError = &err;
+
+        assert!(trait_obj.to_string().contains("test error"));
+
+        // Test that we can store Error in a Box<dyn Error>
+        let boxed: Box<dyn StdError + Send + Sync> = Box::new(err);
+        assert!(boxed.to_string().contains("test error"));
+    }
+
+    #[test]
+    fn test_builder_chaining() {
+        // Test complete builder pattern chain
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file.txt");
+        let err = Error::new("Complex error")
+            .with_code(500)
+            .with_source(io_err)
+            .with_context_value("table", "users")
+            .with_context_value("operation", "read")
+            .with_backtrace();
+
+        assert_eq!(err.code(), Some(500));
+        assert_eq!(err.message(), "Complex error");
+        assert!(err.source().is_some());
+        assert_eq!(err.get_context("table"), Some("users"));
+        assert_eq!(err.get_context("operation"), Some("read"));
+        assert!(err.backtrace().is_some()); // Enabled via with_backtrace()
+    }
+
+    #[test]
+    fn test_from_implementations() {
+        let err: Error = "string error".into();
+        assert_eq!(err.message(), "string error");
+
+        let err: Error = String::from("owned string").into();
+        assert_eq!(err.message(), "owned string");
+    }
+
+    #[test]
+    fn test_result_type() {
+        fn returns_result() -> Result<i32> {
+            Err(Error::new("failed"))
         }
 
-        let error_code = env::var("ALTRIA_ERR_CODE")
-            .ok()
-            .and_then(|s| s.parse::<i32>().ok())
-            .unwrap_or(0);
-
-        let error = Error::new("Environment-based error")
-            .with_code(error_code)
-            .with_metadata("source", "environment_variable");
-
-        assert_eq!(error.code(), Some(500));
-        assert_eq!(error.message(), "Environment-based error");
-        assert_eq!(
-            error.metadata().get("source"),
-            Some(&"environment_variable".to_string())
-        );
-
-        // Test with invalid environment variable (non-numeric)
-        unsafe {
-            env::set_var("ALTRIA_ERR_CODE", "invalid");
-        }
-
-        let fallback_code = env::var("ALTRIA_ERR_CODE")
-            .ok()
-            .and_then(|s| s.parse::<i32>().ok())
-            .unwrap_or(999); // Fallback value
-
-        let error_with_fallback = Error::new("Error with fallback code").with_code(fallback_code);
-
-        assert_eq!(error_with_fallback.code(), Some(999));
-
-        // Test without environment variable
-        unsafe {
-            env::remove_var("ALTRIA_ERR_CODE");
-        }
-
-        let default_code = env::var("ALTRIA_ERR_CODE")
-            .ok()
-            .and_then(|s| s.parse::<i32>().ok())
-            .unwrap_or(1); // Default value
-
-        let error_with_default = Error::new("Error with default code").with_code(default_code);
-
-        assert_eq!(error_with_default.code(), Some(1));
-
-        // Clean up
-        unsafe {
-            env::remove_var("ALTRIA_ERR_CODE");
-        }
+        assert!(returns_result().is_err());
     }
 }
