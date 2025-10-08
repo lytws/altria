@@ -36,10 +36,11 @@
 //! assert!(session.is_modified());
 //! ```
 
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use uuid::Uuid;
 
@@ -68,47 +69,48 @@ pub struct DefaultSessionData {
     pub username: String,
 }
 
-/// Trait for custom session ID generation
+/// Type alias for session ID generator function
 ///
-/// Implement this trait to provide custom session ID generation logic.
+/// This is a thread-safe function that generates unique session IDs.
 /// The default implementation uses UUID v4.
-///
-/// # Thread Safety
-///
-/// Implementations must be Send + Sync as they may be used across threads.
 ///
 /// # Examples
 ///
 /// ```
 /// use altria::web::session::SessionIdGenerator;
 ///
-/// #[derive(Debug, Clone)]
-/// struct CustomIdGenerator {
-///     prefix: String,
-/// }
+/// // Default UUID v4 generator
+/// let default_gen: SessionIdGenerator = Box::new(|| uuid::Uuid::new_v4().to_string());
 ///
-/// impl SessionIdGenerator for CustomIdGenerator {
-///     fn generate(&self) -> String {
-///         format!("{}-{}", self.prefix, uuid::Uuid::new_v4())
-///     }
-/// }
+/// // Custom generator with prefix
+/// let prefix = "session".to_string();
+/// let custom_gen: SessionIdGenerator = Box::new(move || {
+///     format!("{}-{}", prefix, uuid::Uuid::new_v4())
+/// });
+///
+/// // Simple sequential generator (for testing)
+/// let counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+/// let sequential_gen: SessionIdGenerator = Box::new(move || {
+///     let id = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+///     format!("session-{}", id)
+/// });
 /// ```
-pub trait SessionIdGenerator: Send + Sync {
-    /// Generate a new session ID
-    fn generate(&self) -> String;
-}
+pub type SessionIdGenerator = Box<dyn Fn() -> String + Send + Sync>;
 
-/// Default UUID v4 session ID generator
+/// Create the default UUID v4 session ID generator
 ///
-/// This is a zero-sized type that implements `SessionIdGenerator`
-/// using UUID v4 for session ID generation.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UuidV4Generator;
-
-impl SessionIdGenerator for UuidV4Generator {
-    fn generate(&self) -> String {
-        Uuid::new_v4().to_string()
-    }
+/// # Examples
+///
+/// ```
+/// use altria::web::session::default_session_id_generator;
+///
+/// let generator = default_session_id_generator();
+/// let id = generator();
+/// assert!(!id.is_empty());
+/// ```
+#[must_use]
+pub fn default_session_id_generator() -> SessionIdGenerator {
+    Box::new(|| Uuid::new_v4().to_string())
 }
 
 /// Internal session state that requires synchronization
@@ -221,6 +223,7 @@ where
     /// ```
     /// use altria::web::session::SessionBuilder;
     ///
+    ///
     /// let session = SessionBuilder::<()>::new().build();
     /// let created = session.created_at();
     /// assert!(created <= std::time::SystemTime::now());
@@ -250,7 +253,7 @@ where
     /// ```
     #[must_use]
     pub fn expires_at(&self) -> Option<SystemTime> {
-        self.state.read().ok().and_then(|state| state.expires_at)
+        self.state.read().expires_at
     }
 
     /// Check if the session has expired
@@ -276,8 +279,7 @@ where
     pub fn is_expired(&self) -> bool {
         self.state
             .read()
-            .ok()
-            .and_then(|state| state.expires_at)
+            .expires_at
             .is_some_and(|expires_at| SystemTime::now() >= expires_at)
     }
 
@@ -290,13 +292,13 @@ where
     /// - Session is discarded via `discard()`
     #[must_use]
     pub fn is_modified(&self) -> bool {
-        self.state.read().ok().is_some_and(|state| state.modified)
+        self.state.read().modified
     }
 
     /// Check if the session has been marked for deletion
     #[must_use]
     pub fn is_discarded(&self) -> bool {
-        self.state.read().ok().is_some_and(|state| state.discarded)
+        self.state.read().discarded
     }
 
     /// Check if the session has data
@@ -318,10 +320,7 @@ where
     /// ```
     #[must_use]
     pub fn has_data(&self) -> bool {
-        self.state
-            .read()
-            .ok()
-            .is_some_and(|state| state.data.is_some())
+        self.state.read().data.is_some()
     }
 
     /// Get a clone of the session data
@@ -346,7 +345,7 @@ where
     /// ```
     #[must_use]
     pub fn data(&self) -> Option<T> {
-        self.state.read().ok().and_then(|state| state.data.clone())
+        self.state.read().data.clone()
     }
 
     /// Update the session data and mark as modified
@@ -369,10 +368,9 @@ where
     /// assert!(session.has_data());
     /// ```
     pub fn update_data(&self, data: Option<T>) {
-        if let Ok(mut state) = self.state.write() {
-            state.data = data;
-            state.modified = true;
-        }
+        let mut state = self.state.write();
+        state.data = data;
+        state.modified = true;
     }
 
     /// Get a context value by key
@@ -390,10 +388,7 @@ where
     /// ```
     #[must_use]
     pub fn get_context(&self, key: &str) -> Option<String> {
-        self.state
-            .read()
-            .ok()
-            .and_then(|state| state.context.get(key).cloned())
+        self.state.read().context.get(key).cloned()
     }
 
     /// Set a context value by key and mark as modified
@@ -411,20 +406,29 @@ where
     /// assert!(session.is_modified());
     /// ```
     pub fn set_context(&self, key: impl Into<String>, value: impl Into<String>) {
-        if let Ok(mut state) = self.state.write() {
-            state.context.insert(key.into(), value.into());
-            state.modified = true;
-        }
+        let mut state = self.state.write();
+        state.context.insert(key.into(), value.into());
+        state.modified = true;
     }
 
     /// Get all context data as a cloned `HashMap`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use altria::web::session::SessionBuilder;
+    ///
+    /// let session = SessionBuilder::<()>::new()
+    ///     .context("theme", "dark")
+    ///     .context("lang", "en")
+    ///     .build();
+    ///
+    /// let ctx = session.context();
+    /// assert_eq!(ctx.len(), 2);
+    /// ```
     #[must_use]
     pub fn context(&self) -> HashMap<String, String> {
-        self.state
-            .read()
-            .ok()
-            .map(|state| state.context.clone())
-            .unwrap_or_default()
+        self.state.read().context.clone()
     }
 
     /// Extend the session expiration time
@@ -447,11 +451,9 @@ where
     /// assert!(session.is_modified());
     /// ```
     pub fn extend_expiration(&self, additional_time: Duration) {
-        if let Ok(mut state) = self.state.write() {
-            state.expires_at =
-                Some(state.expires_at.unwrap_or_else(SystemTime::now) + additional_time);
-            state.modified = true;
-        }
+        let mut state = self.state.write();
+        state.expires_at = Some(state.expires_at.unwrap_or_else(SystemTime::now) + additional_time);
+        state.modified = true;
     }
 
     /// Set an absolute expiration time
@@ -469,10 +471,9 @@ where
     /// assert!(session.is_modified());
     /// ```
     pub fn set_expiration(&self, expires_at: Option<SystemTime>) {
-        if let Ok(mut state) = self.state.write() {
-            state.expires_at = expires_at;
-            state.modified = true;
-        }
+        let mut state = self.state.write();
+        state.expires_at = expires_at;
+        state.modified = true;
     }
 
     /// Mark the session as discarded (e.g., after user logout)
@@ -492,10 +493,9 @@ where
     /// assert!(session.is_modified());
     /// ```
     pub fn discard(&self) {
-        if let Ok(mut state) = self.state.write() {
-            state.discarded = true;
-            state.modified = true;
-        }
+        let mut state = self.state.write();
+        state.discarded = true;
+        state.modified = true;
     }
 
     /// Clear the modified flag
@@ -503,9 +503,7 @@ where
     /// This is typically called by the session store after successfully
     /// persisting the session.
     pub fn clear_modified(&self) {
-        if let Ok(mut state) = self.state.write() {
-            state.modified = false;
-        }
+        self.state.write().modified = false;
     }
 }
 
@@ -515,25 +513,11 @@ where
     T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let state = self.state.read();
-        match state {
-            Ok(state) => f
-                .debug_struct("Session")
-                .field("id", &self.id)
-                .field("created_at", &self.created_at)
-                .field("data", &state.data)
-                .field("context", &state.context)
-                .field("expires_at", &state.expires_at)
-                .field("modified", &state.modified)
-                .field("discarded", &state.discarded)
-                .finish(),
-            Err(_) => f
-                .debug_struct("Session")
-                .field("id", &self.id)
-                .field("created_at", &self.created_at)
-                .field("state", &"<poisoned>")
-                .finish(),
-        }
+        f.debug_struct("Session")
+            .field("id", &self.id)
+            .field("created_at", &self.created_at)
+            .field("state", &*self.state.read())
+            .finish()
     }
 }
 
@@ -558,17 +542,12 @@ where
     {
         use serde::ser::SerializeStruct;
 
-        let state = self
-            .state
-            .read()
-            .map_err(|_| serde::ser::Error::custom("failed to acquire read lock"))?;
+        let state = self.state.read();
 
-        let mut s = serializer.serialize_struct("Session", 5)?;
+        let mut s = serializer.serialize_struct("Session", 3)?;
         s.serialize_field("id", &self.id)?;
         s.serialize_field("created_at", &self.created_at)?;
-        s.serialize_field("data", &state.data)?;
-        s.serialize_field("context", &state.context)?;
-        s.serialize_field("expires_at", &state.expires_at)?;
+        s.serialize_field("state", &*state)?;
         drop(state);
         s.end()
     }
@@ -590,9 +569,7 @@ where
         enum Field {
             Id,
             CreatedAt,
-            Data,
-            Context,
-            ExpiresAt,
+            State,
         }
 
         struct SessionVisitor<T>(std::marker::PhantomData<T>);
@@ -613,9 +590,7 @@ where
             {
                 let mut id = None;
                 let mut created_at = None;
-                let mut data = None;
-                let mut context = None;
-                let mut expires_at = None;
+                let mut state = None;
 
                 while let Some(key) = map.next_key()? {
                     match key {
@@ -631,23 +606,11 @@ where
                             }
                             created_at = Some(map.next_value()?);
                         }
-                        Field::Data => {
-                            if data.is_some() {
-                                return Err(de::Error::duplicate_field("data"));
+                        Field::State => {
+                            if state.is_some() {
+                                return Err(de::Error::duplicate_field("state"));
                             }
-                            data = Some(map.next_value()?);
-                        }
-                        Field::Context => {
-                            if context.is_some() {
-                                return Err(de::Error::duplicate_field("context"));
-                            }
-                            context = Some(map.next_value()?);
-                        }
-                        Field::ExpiresAt => {
-                            if expires_at.is_some() {
-                                return Err(de::Error::duplicate_field("expires_at"));
-                            }
-                            expires_at = Some(map.next_value()?);
+                            state = Some(map.next_value()?);
                         }
                     }
                 }
@@ -655,26 +618,18 @@ where
                 let id = id.ok_or_else(|| de::Error::missing_field("id"))?;
                 let created_at =
                     created_at.ok_or_else(|| de::Error::missing_field("created_at"))?;
-                let data = data.ok_or_else(|| de::Error::missing_field("data"))?;
-                let context = context.ok_or_else(|| de::Error::missing_field("context"))?;
-                let expires_at =
-                    expires_at.ok_or_else(|| de::Error::missing_field("expires_at"))?;
+                let state: SessionState<T> =
+                    state.ok_or_else(|| de::Error::missing_field("state"))?;
 
                 Ok(Session {
                     id,
                     created_at,
-                    state: Arc::new(RwLock::new(SessionState {
-                        data,
-                        context,
-                        expires_at,
-                        modified: false,
-                        discarded: false,
-                    })),
+                    state: Arc::new(RwLock::new(state)),
                 })
             }
         }
 
-        const FIELDS: &[&str] = &["id", "created_at", "data", "context", "expires_at"];
+        const FIELDS: &[&str] = &["id", "created_at", "state"];
         deserializer.deserialize_struct("Session", FIELDS, SessionVisitor(std::marker::PhantomData))
     }
 }
@@ -684,6 +639,16 @@ where
 /// This builder provides a flexible and ergonomic way to create sessions
 /// with custom configuration, including custom ID generators.
 ///
+/// # Design
+///
+/// The builder uses a `SessionState` as the primary data structure, with
+/// `expires_in` as a special field for ergonomic API (duration instead of absolute time).
+/// This design ensures that adding new fields to `SessionState` doesn't require
+/// changes to the builder, serialization, or deserialization implementations.
+///
+/// ID generation is handled by a closure (`SessionIdGenerator`), providing maximum
+/// flexibility without the complexity of traits and generics.
+///
 /// # Thread Safety
 ///
 /// The builder itself doesn't need to be Sync as it's consumed on build.
@@ -692,10 +657,10 @@ where
 /// # Examples
 ///
 /// ```
-/// use altria::web::session::{SessionBuilder, DefaultSessionData, SessionIdGenerator};
+/// use altria::web::session::{SessionBuilder, DefaultSessionData};
 /// use std::time::Duration;
 ///
-/// // Simple session
+/// // Simple session with default UUID v4 generator
 /// let session = SessionBuilder::<()>::new().build();
 ///
 /// // Session with data
@@ -708,31 +673,25 @@ where
 ///     .expires_in(Duration::from_secs(3600))
 ///     .build();
 ///
-/// // Session with custom ID generator
-/// #[derive(Clone)]
-/// struct CustomGen;
-/// impl SessionIdGenerator for CustomGen {
-///     fn generate(&self) -> String {
-///         format!("custom-{}", uuid::Uuid::new_v4())
-///     }
-/// }
-///
-/// let session = SessionBuilder::<(), CustomGen>::with_id_generator(CustomGen)
+/// // Session with custom ID generator (closure)
+/// let prefix = "custom".to_string();
+/// let session = SessionBuilder::<()>::new()
+///     .id_generator(Box::new(move || format!("{}-{}", prefix, uuid::Uuid::new_v4())))
 ///     .expires_in(Duration::from_secs(7200))
 ///     .build();
 /// ```
-pub struct SessionBuilder<T, G = UuidV4Generator>
+pub struct SessionBuilder<T>
 where
     T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync,
-    G: SessionIdGenerator,
 {
-    id_generator: G,
-    data: Option<T>,
+    id_generator: SessionIdGenerator,
+    /// Pre-built session state
+    state: SessionState<T>,
+    /// Special field for ergonomic API: duration instead of absolute time
     expires_in: Option<Duration>,
-    context: HashMap<String, String>,
 }
 
-impl<T> SessionBuilder<T, UuidV4Generator>
+impl<T> SessionBuilder<T>
 where
     T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync,
 {
@@ -748,15 +707,20 @@ where
     #[must_use]
     pub fn new() -> Self {
         Self {
-            id_generator: UuidV4Generator,
-            data: None,
+            id_generator: default_session_id_generator(),
+            state: SessionState {
+                data: None,
+                context: HashMap::new(),
+                expires_at: None,
+                modified: false,
+                discarded: false,
+            },
             expires_in: None,
-            context: HashMap::new(),
         }
     }
 }
 
-impl<T> Default for SessionBuilder<T, UuidV4Generator>
+impl<T> Default for SessionBuilder<T>
 where
     T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync,
 {
@@ -765,37 +729,33 @@ where
     }
 }
 
-impl<T, G> SessionBuilder<T, G>
+impl<T> SessionBuilder<T>
 where
     T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync,
-    G: SessionIdGenerator,
 {
-    /// Create a session builder with a custom ID generator
+    /// Set a custom ID generator
     ///
     /// # Examples
     ///
     /// ```
-    /// use altria::web::session::{SessionBuilder, SessionIdGenerator};
+    /// use altria::web::session::SessionBuilder;
     ///
-    /// #[derive(Clone)]
-    /// struct MyGen;
-    /// impl SessionIdGenerator for MyGen {
-    ///     fn generate(&self) -> String {
-    ///         "my-session-id".to_string()
-    ///     }
-    /// }
-    ///
-    /// let session = SessionBuilder::<(), MyGen>::with_id_generator(MyGen).build();
+    /// // Simple custom generator
+    /// let session = SessionBuilder::<()>::new()
+    ///     .id_generator(Box::new(|| "my-session-id".to_string()))
+    ///     .build();
     /// assert_eq!(session.id(), "my-session-id");
+    ///
+    /// // Generator with captured variable
+    /// let prefix = "test".to_string();
+    /// let session = SessionBuilder::<()>::new()
+    ///     .id_generator(Box::new(move || format!("{}-123", prefix)))
+    ///     .build();
     /// ```
     #[must_use]
-    pub fn with_id_generator(id_generator: G) -> Self {
-        Self {
-            id_generator,
-            data: None,
-            expires_in: None,
-            context: HashMap::new(),
-        }
+    pub fn id_generator(mut self, generator: SessionIdGenerator) -> Self {
+        self.id_generator = generator;
+        self
     }
 
     /// Set the session data
@@ -814,7 +774,7 @@ where
     /// ```
     #[must_use]
     pub fn data(mut self, data: T) -> Self {
-        self.data = Some(data);
+        self.state.data = Some(data);
         self
     }
 
@@ -854,7 +814,7 @@ where
     /// ```
     #[must_use]
     pub fn context(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.context.insert(key.into(), value.into());
+        self.state.context.insert(key.into(), value.into());
         self
     }
 
@@ -871,20 +831,18 @@ where
     /// assert!(!session.id().is_empty());
     /// ```
     #[must_use]
-    pub fn build(self) -> Session<T> {
+    pub fn build(mut self) -> Session<T> {
         let now = SystemTime::now();
-        let expires_at = self.expires_in.map(|duration| now + duration);
+
+        // Handle special expires_in field
+        if let Some(duration) = self.expires_in {
+            self.state.expires_at = Some(now + duration);
+        }
 
         Session {
-            id: self.id_generator.generate(),
+            id: (self.id_generator)(),
             created_at: now,
-            state: Arc::new(RwLock::new(SessionState {
-                data: self.data,
-                context: self.context,
-                expires_at,
-                modified: false,
-                discarded: false,
-            })),
+            state: Arc::new(RwLock::new(self.state)),
         }
     }
 }
@@ -1007,12 +965,11 @@ const _: () = {
 const _: () = {
     const fn assert_send<T: Send>() {}
 
-    const fn check_builder<T, G>()
+    const fn check_builder<T>()
     where
         T: Clone + Serialize + for<'de> Deserialize<'de> + Send + Sync,
-        G: SessionIdGenerator,
     {
-        assert_send::<SessionBuilder<T, G>>();
+        assert_send::<SessionBuilder<T>>();
     }
 };
 
@@ -1049,7 +1006,7 @@ mod tests {
             user_id: 1,
             username: "bob".to_string(),
         };
-        let session = SessionBuilder::new().data(data.clone()).build();
+        let session = SessionBuilder::new().data(data).build();
 
         assert!(session.has_data());
         let retrieved_data = session.data().unwrap();
@@ -1100,15 +1057,9 @@ mod tests {
 
     #[test]
     fn test_custom_id_generator() {
-        #[derive(Clone)]
-        struct CustomGen;
-        impl SessionIdGenerator for CustomGen {
-            fn generate(&self) -> String {
-                "custom-id-123".to_string()
-            }
-        }
-
-        let session = SessionBuilder::<(), CustomGen>::with_id_generator(CustomGen).build();
+        let session = SessionBuilder::<()>::new()
+            .id_generator(Box::new(|| "custom-id-123".to_string()))
+            .build();
         assert_eq!(session.id(), "custom-id-123");
     }
 
@@ -1291,6 +1242,9 @@ mod tests {
 
         let debug_str = format!("{session:?}");
         assert!(debug_str.contains("Session"));
+        assert!(debug_str.contains("id"));
+        assert!(debug_str.contains("created_at"));
+        assert!(debug_str.contains("state"));
         assert!(debug_str.contains("alice"));
     }
 
